@@ -1,0 +1,18 @@
+{
+  "name": "용돈미션",
+  "short_name": "용돈미션",
+  "description": "미션하고 용돈 모으기 — 우리집 미션 용돈 앱",
+  "id": "yongdon-mission",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F7F3",
+  "theme_color": "#1FA26B",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
