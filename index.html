@@ -128,6 +128,8 @@
   .payrow input[type=number]{flex:1; min-width:0; font:inherit; padding:9px 11px; border:1.5px solid var(--line); border-radius:11px; background:var(--bg); color:var(--ink);}
   .payrow input:focus{outline:2px solid var(--green); border-color:transparent;}
   .btn.sm2{padding:9px 13px; flex:none;}
+  .payrow2{display:flex; gap:7px; margin-top:8px;}
+  .payrow2 .btn{flex:1; text-align:center; padding:11px 4px;}
   .memoin{width:100%; font:inherit; padding:8px 11px; margin-top:7px; border:1.5px solid var(--line); border-radius:11px; background:var(--bg); color:var(--ink);}
   .memoin:focus{outline:2px solid var(--green); border-color:transparent;}
   .paylist{margin-top:8px; border-top:1px solid var(--line); padding-top:4px;}
@@ -231,7 +233,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.2";
+const APPVER = "1.0.3";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -570,7 +572,7 @@ function viewShop() {
   const bal = balanceOf(ME.id);
   const items = shopItems().filter(i => i.active);
   let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
-    '<div class="m num">' + (savingsOf(ME.id) ? "저금통에 " + won(savingsOf(ME.id)) + " 모았어요 🐷" : "사고 싶은 걸 골라봐요") + '</div></div>';
+    '<div class="m num">사고 싶은 걸 골라봐요</div></div>';
   html += '<div class="lrow"><b>🛒 상점</b><span>지갑에서 바로 빠져요</span></div>';
   html += '<div class="shop">';
   if (!items.length) html += '<div class="empty">아직 살 수 있는 게 없어요</div>';
@@ -580,16 +582,10 @@ function viewShop() {
       '<span class="emoji">' + esc(it.emoji) + '</span><b>' + esc(it.name) + '</b><span class="price num">' + won(it.price) + '</span></button>';
   });
   html += '</div>';
-  html += '<div class="lrow" style="margin-top:6px"><b>🐷 부모님께 맡기기</b><span>저금</span></div>';
-  html += '<div class="card"><div class="payrow">' +
-    '<input type="number" id="giveamt" inputmode="numeric" placeholder="맡길 금액" ' + (bal > 0 ? "" : "disabled") + '>' +
-    '<button class="btn ghost sm2" data-act="givefull" data-b="' + bal + '" ' + (bal > 0 ? "" : "disabled") + '>전액</button>' +
-    '<button class="btn sm2" data-act="give" ' + (bal > 0 ? "" : "disabled") + '>맡기기</button></div>' +
-    '<input type="text" id="givememo" class="memoin" placeholder="메모 (예: 저금통, 장난감 사려고) — 선택"></div>';
   const sp = (STATE.spends || []).filter(s => s.memberId === ME.id).slice(0, 8);
   if (sp.length) {
-    html += '<div class="lrow"><b>최근 쓴 내역</b></div><div class="card">';
-    sp.forEach(s => html += '<div class="dline"><span>' + (s.kind === "save" ? "🐷 맡김" + (s.label ? " (" + esc(s.label) + ")" : "") : "🛒 " + esc(s.label)) + '</span><span class="wt num">−' + fmt(s.amount) + '</span></div>');
+    html += '<div class="lrow"><b>최근 산 것</b></div><div class="card">';
+    sp.forEach(s => html += '<div class="dline"><span>' + (s.kind === "save" ? "🐷 맡김" : "🛒 " + esc(s.label)) + '</span><span class="wt num">−' + fmt(s.amount) + '</span></div>');
     html += '</div>';
   }
   return html;
@@ -601,18 +597,20 @@ function viewMoney() {
   const bal = balanceOf(ME.id);
   const earned = monthTotal(ME.id);
   const paid = paidThisMonth(ME.id);
-  const sav = savingsOf(ME.id);
   const [y, m] = CAL_MONTH.split("-").map(Number);
   let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
-    '<div class="m num">' + (sav ? "저금통 🐷 " + won(sav) + " · 쓴 만큼 빠져요" : "모은 용돈에서 쓴 만큼 빠져요") + '</div></div>';
+    '<div class="m num">미션·용돈으로 늘고, 쓰면 줄어요</div></div>';
   html += '<div class="cal-head"><button data-act="mon" data-dir="-1">‹</button><b>' + y + '년 ' + m + '월</b><button data-act="mon" data-dir="1">›</button></div>';
   const spentM = (STATE.spends || []).filter(s => s.memberId === ME.id && monthOf(s.day) === CAL_MONTH).reduce((s, x) => s + x.amount, 0);
-  html += '<div class="lrow"><b>' + m + '월 요약</b><span class="num">모음 +' + fmt(earned) + ' · 씀 ' + won(spentM + paid) + '</span></div>';
-  // 적립/차감 + 지급 + 소비(구매·저금)를 날짜순으로 합쳐 표시
+  const gotM = (STATE.deposits || []).filter(d => d.memberId === ME.id && monthOf(d.day) === CAL_MONTH).reduce((s, x) => s + x.amount, 0);
+  html += '<div class="lrow"><b>' + m + '월 요약</b><span class="num">모음 +' + fmt(earned + gotM) + ' · 씀 ' + won(spentM + paid) + '</span></div>';
+  // 적립/차감 + 입금(받은용돈) + 지급 + 소비(구매)를 날짜순으로 합쳐 표시
   const mp = missionMap();
   const items = [];
   allRecords().filter(r => r.memberId === ME.id && monthOf(r.day) === CAL_MONTH && r.delta !== 0)
     .forEach(r => items.push({ day: r.day, label: (mp[r.missionId] ? mp[r.missionId].title : "미션"), delta: r.delta }));
+  (STATE.deposits || []).filter(d => d.memberId === ME.id && monthOf(d.day) === CAL_MONTH)
+    .forEach(d => items.push({ day: d.day, label: "💰 받은 용돈" + (d.memo ? " (" + d.memo + ")" : ""), delta: d.amount }));
   (STATE.payouts || []).filter(p => p.memberId === ME.id && monthOf(p.day) === CAL_MONTH)
     .forEach(p => items.push({ day: p.day, label: "💸 용돈 받음" + (p.memo ? " (" + p.memo + ")" : ""), delta: -p.amount, pay: true }));
   (STATE.spends || []).filter(s => s.memberId === ME.id && monthOf(s.day) === CAL_MONTH)
@@ -665,25 +663,32 @@ function viewApprove() {
 /* ----- 부모: 지급 ----- */
 function viewPayout() {
   const kids = (STATE.members || []).filter(m => m.role === "child");
-  let html = '<div class="lrow"><b style="font-size:16px">용돈 지급</b><span>아무 때나 줄 수 있어요</span></div>';
+  let html = '<div class="lrow"><b style="font-size:16px">용돈 넣기 · 지급</b><span>아무 때나</span></div>';
   kids.forEach(k => {
     const bal = balanceOf(k.id);
     html += '<div class="card">';
     html += '<div class="kh"><span class="ava sm" style="background:' + k.color + '">' + esc(k.name[0]) + '</span><b>' + esc(k.name) + '</b>' +
-      '<div class="sum"><b class="num">' + won(bal) + '</b><small class="num">지금 지갑' + (savingsOf(k.id) ? ' · 저금 ' + won(savingsOf(k.id)) : "") + '</small></div></div>';
+      '<div class="sum"><b class="num">' + won(bal) + '</b><small class="num">지금 지갑</small></div></div>';
     html += '<div class="payrow">' +
-      '<input type="number" id="pay-' + k.id + '" inputmode="numeric" placeholder="지급액" ' + (bal > 0 ? '' : 'disabled') + '>' +
-      '<button class="btn ghost sm2" data-act="payfull" data-k="' + k.id + '" data-b="' + bal + '" ' + (bal > 0 ? '' : 'disabled') + '>전액</button>' +
-      '<button class="btn sm2" data-act="payout" data-k="' + k.id + '" ' + (bal > 0 ? '' : 'disabled') + '>지급</button>' +
+      '<input type="number" id="pay-' + k.id + '" inputmode="numeric" placeholder="금액">' +
+      '<button class="btn ghost sm2" data-act="payfull" data-k="' + k.id + '" data-b="' + bal + '">전액</button>' +
       '</div>';
-    html += '<input type="text" id="paymemo-' + k.id + '" class="memoin" placeholder="메모 (예: 문구점, 저금통) — 선택">';
-    const ps = (STATE.payouts || []).filter(p => p.memberId === k.id);
-    if (ps.length) {
+    html += '<input type="text" id="paymemo-' + k.id + '" class="memoin" placeholder="메모 (예: 할머니 용돈 / 문구점) — 선택">';
+    html += '<div class="payrow2">' +
+      '<button class="btn" data-act="deposit" data-k="' + k.id + '">＋ 넣기(입금)</button>' +
+      '<button class="btn grey" data-act="payout" data-k="' + k.id + '" ' + (bal > 0 ? '' : 'disabled') + '>－ 지급(현금)</button>' +
+      '</div>';
+    // 최근 넣기·지급 내역 (입금 + 지급)
+    const mv = [];
+    (STATE.deposits || []).filter(d => d.memberId === k.id).forEach(d => mv.push({ id: d.id, day: d.day, label: d.memo || "용돈 넣음", amt: d.amount, act: "depundo" }));
+    (STATE.payouts || []).filter(p => p.memberId === k.id).forEach(p => mv.push({ id: p.id, day: p.day, label: p.memo || "용돈 지급", amt: -p.amount, act: "payundo" }));
+    mv.sort((a, b) => b.day.localeCompare(a.day));
+    if (mv.length) {
       html += '<div class="paylist">';
-      ps.slice(0, 6).forEach(p => {
-        html += '<div class="dline"><span><small class="mut num">' + p.day.slice(5).replace("-", "/") + '</small>  ' +
-          (p.memo ? esc(p.memo) : "용돈 지급") + '</span><span class="wt num">−' + fmt(p.amount) + '</span>' +
-          '<button class="undo" data-act="payundo" data-id="' + p.id + '">되돌리기</button></div>';
+      mv.slice(0, 6).forEach(x => {
+        html += '<div class="dline"><span><small class="mut num">' + x.day.slice(5).replace("-", "/") + '</small>  ' + esc(x.label) + '</span>' +
+          '<span class="' + (x.amt < 0 ? "wt" : "ok") + ' num">' + (x.amt > 0 ? "+" : "−") + fmt(x.amt) + '</span>' +
+          '<button class="undo" data-act="' + x.act + '" data-id="' + x.id + '">되돌리기</button></div>';
       });
       html += '</div>';
     }
@@ -693,18 +698,17 @@ function viewPayout() {
   const sp = (STATE.spends || []);
   if (sp.length) {
     const pm = memberMap();
-    html += '<div class="lrow" style="margin-top:6px"><b>아이가 쓴 내역</b><span>구매·저금</span></div><div class="card">';
+    html += '<div class="lrow" style="margin-top:6px"><b>아이가 산 것</b><span>상점 구매</span></div><div class="card">';
     sp.slice(0, 14).forEach(s => {
       const kid = pm[s.memberId];
       html += '<div class="dline"><span><small class="mut num">' + s.day.slice(5).replace("-", "/") + '</small>  ' +
         (kid ? esc(kid.name) + ' · ' : "") + (s.kind === "save" ? "🐷 맡김" : "🛒 " + esc(s.label)) +
-        (s.kind === "save" && s.label ? " (" + esc(s.label) + ")" : "") +
         '</span><span class="wt num">−' + fmt(s.amount) + '</span>' +
         '<button class="undo" data-act="spendundo" data-id="' + s.id + '">되돌리기</button></div>';
     });
     html += '</div>';
   }
-  html += '<div class="card mut" style="font-size:11.5px">💡 지급하면 아이 지갑에서 그만큼 빠지고 아이 폰에 알림이 가요. 잘못 눌렀으면 되돌리기로 취소할 수 있어요.</div>';
+  html += '<div class="card mut" style="font-size:11.5px">💡 <b>＋넣기(입금)</b>: 할머니 등 다른 분이 준 용돈을 아이 지갑에 넣어줘요(늘어남). <b>－지급(현금)</b>: 모은 용돈을 현금으로 줄 때 지갑에서 빼요(줄어듦). 둘 다 아이 폰에 알림이 가고 되돌릴 수 있어요.</div>';
   return html;
 }
 
@@ -917,12 +921,18 @@ async function doBuy(id, name, price) {
   try { await api("buy", { itemId: id }); toast("샀어요! 🛒 부모님께 알림이 갔어요"); await loadState(); }
   catch (e) { toast(e.message); }
 }
-async function doGive() {
-  const amt = Math.floor(Number(($("#giveamt") || {}).value) || 0);
-  const memo = (($("#givememo") || {}).value || "").trim();
-  if (amt <= 0) return toast("맡길 금액을 입력해 주세요");
-  if (!confirm(won(amt) + "을 부모님께 맡길까요?\n지갑에서 빠지고 저금통에 쌓여요 🐷")) return;
-  try { await api("give", { amount: amt, memo }); toast("맡겼어요 🐷"); await loadState(); }
+async function doDeposit(kid) {
+  const amt = Math.floor(Number(($("#pay-" + kid) || {}).value) || 0);
+  const memo = (($("#paymemo-" + kid) || {}).value || "").trim();
+  if (amt <= 0) return toast("넣을 금액을 입력해 주세요");
+  const k = (STATE.members || []).find(x => x.id === kid);
+  if (!confirm((k ? k.name : "아이") + " 지갑에 " + won(amt) + " 넣을까요?\n(할머니 등 받은 용돈)")) return;
+  try { await api("deposit", { memberId: kid, amount: amt, memo }); toast("넣었어요 💰"); await loadState(); }
+  catch (e) { toast(e.message); }
+}
+async function doDepUndo(id) {
+  if (!confirm("이 입금을 되돌릴까요? 지갑에서 다시 빠져요.")) return;
+  try { await api("deposit_delete", { id }); toast("되돌렸어요"); await loadState(); }
   catch (e) { toast(e.message); }
 }
 async function doSpendUndo(id) {
@@ -1044,8 +1054,8 @@ document.addEventListener("click", e => {
     }
     case "payundo": doPayUndo(d.id); break;
     case "buy": doBuy(d.id, d.n, Number(d.p)); break;
-    case "give": doGive(); break;
-    case "givefull": { const inp = $("#giveamt"); if (inp) inp.value = d.b; break; }
+    case "deposit": doDeposit(d.k); break;
+    case "depundo": doDepUndo(d.id); break;
     case "spendundo": doSpendUndo(d.id); break;
     case "shopnew": SHOPSHEET = {}; render(); break;
     case "shopedit": {
