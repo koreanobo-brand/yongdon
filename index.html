@@ -120,6 +120,19 @@
   .mm .kids{display:flex; gap:4px; flex:none;}
   .kchip{width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font-size:11px; font-weight:800; color:#fff;}
   .mm .chev{color:var(--mut); font-weight:700; flex:none;}
+  .linkbtn{color:var(--green); font-weight:800; font-size:13px; padding:2px 4px;}
+  .tag-s{display:inline-block; font-size:9.5px; font-weight:800; color:#fff; background:var(--amber); padding:1px 6px; border-radius:6px; vertical-align:1px;}
+  .hint{font-size:12px; color:var(--mut); background:var(--amberbg); border-radius:10px; padding:8px 10px;}
+  /* 지급 */
+  .payrow{display:flex; gap:7px; align-items:stretch; margin-top:10px;}
+  .payrow input[type=number]{flex:1; min-width:0; font:inherit; padding:9px 11px; border:1.5px solid var(--line); border-radius:11px; background:var(--bg); color:var(--ink);}
+  .payrow input:focus{outline:2px solid var(--green); border-color:transparent;}
+  .btn.sm2{padding:9px 13px; flex:none;}
+  .memoin{width:100%; font:inherit; padding:8px 11px; margin-top:7px; border:1.5px solid var(--line); border-radius:11px; background:var(--bg); color:var(--ink);}
+  .memoin:focus{outline:2px solid var(--green); border-color:transparent;}
+  .paylist{margin-top:8px; border-top:1px solid var(--line); padding-top:4px;}
+  .paylist .dline{align-items:center;}
+  .undo{flex:none; margin-left:8px; font-size:10.5px; font-weight:700; color:var(--mut); border:1px solid var(--line); border-radius:8px; padding:3px 8px;}
 
   /* 현황 */
   .kh{display:flex; align-items:center; gap:9px; margin-bottom:8px;}
@@ -208,7 +221,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.0";
+const APPVER = "1.0.1";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -307,6 +320,8 @@ async function loadState(silent) {
     const j = await api("state", { month: CAL_MONTH });
     STATE = j;
     if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
+    const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (silent && (SHEET || typing)) return;   // 입력 중·시트 열림이면 화면 유지
     render();
   } catch (e) { if (!silent) toast(e.message); }
 }
@@ -383,8 +398,26 @@ function recFor(memberId, missionId, day) {
   return allRecords().find(r => r.memberId === memberId && r.missionId === missionId && r.day === day);
 }
 function myMissions(memberId) {
-  return (STATE.missions || []).filter(m => m.active && m.targets.includes(memberId))
+  // 정규(매일 반복) 미션만 — 만점/달성률 계산용
+  return (STATE.missions || []).filter(m => m.active && !m.onceDay && m.targets.includes(memberId))
     .sort((a, b) => a.sort - b.sort);
+}
+function missionsForDay(memberId, day) {
+  // 그날 보여줄 미션 = 정규 + 그날짜 돌발
+  return (STATE.missions || []).filter(m => m.active && m.targets.includes(memberId)
+      && (!m.onceDay || m.onceDay === day))
+    .sort((a, b) => ((a.onceDay ? 1 : 0) - (b.onceDay ? 1 : 0)) || (a.sort - b.sort));
+}
+function surpriseMissions() {
+  return (STATE.missions || []).filter(m => m.onceDay)
+    .sort((a, b) => a.onceDay.localeCompare(b.onceDay) || a.sort - b.sort);
+}
+function balanceOf(memberId) {
+  return (STATE.balances && STATE.balances[memberId]) || 0;
+}
+function paidThisMonth(memberId) {
+  return (STATE.payouts || []).filter(p => p.memberId === memberId)
+    .reduce((s, p) => s + p.amount, 0);
 }
 function monthTotal(memberId) {
   return allRecords().filter(r => r.memberId === memberId && monthOf(r.day) === CAL_MONTH)
@@ -417,7 +450,7 @@ function render() {
   if (!ME || !STATE) return;
   const isParent = ME.role === "parent";
   const tabs = isParent
-    ? [["approve", "승인"], ["missions", "미션 관리"], ["status", "현황"]]
+    ? [["approve", "승인"], ["missions", "미션"], ["payout", "지급"], ["status", "현황"]]
     : [["today", "오늘"], ["cal", "달력"], ["money", "내 용돈"]];
   let html = '<div class="body">';
   html += '<div class="head"><span class="ava" style="background:' + ME.color + '">' + esc(ME.name[0]) + '</span>' +
@@ -428,6 +461,7 @@ function render() {
   if (isParent) {
     if (TAB === "approve") html += viewApprove();
     else if (TAB === "missions") html += viewMissions();
+    else if (TAB === "payout") html += viewPayout();
     else html += viewStatus();
   } else {
     if (TAB === "today") html += viewToday();
@@ -455,14 +489,12 @@ function pushBanner() {
 /* ----- 아이: 오늘 ----- */
 function viewToday() {
   const t = STATE.today;
-  const missions = myMissions(ME.id);
-  const daily = missions.reduce((s, m) => s + m.amount, 0);
-  const total = monthTotal(ME.id);
-  const max = daily * daysInMonth(monthOf(t));
+  const missions = missionsForDay(ME.id, t);
+  const earned = monthTotal(ME.id);
+  const bal = balanceOf(ME.id);
   const doneCnt = missions.filter(m => { const r = recFor(ME.id, m.id, t); return r && r.status === "success"; }).length;
-  let html = '<div class="card bal"><div class="t">이번 달 모은 용돈</div><div class="v num">' + won(total) + '</div>' +
-    '<div class="meter"><i style="width:' + Math.max(0, Math.min(100, Math.round(total / Math.max(1, max) * 100))) + '%"></i></div>' +
-    '<div class="m num">' + monthOf(t).split("-")[1].replace(/^0/, "") + '월 만점 ' + won(max) + '까지 ' + won(Math.max(0, max - total)) + ' 남았어요</div></div>';
+  let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
+    '<div class="m num">이번 달 +' + fmt(earned) + '원 모았어요' + (paidThisMonth(ME.id) ? ' · 받은 용돈 ' + won(paidThisMonth(ME.id)) : '') + '</div></div>';
   html += '<div class="lrow"><b>오늘의 미션</b><span class="num">' + missions.length + '개 중 ' + doneCnt + '개 성공</span></div>';
   if (!missions.length) html += '<div class="empty">아직 내 미션이 없어요. 부모님께 말해보세요!</div>';
   missions.forEach(m => {
@@ -473,7 +505,8 @@ function viewToday() {
     else if (r.status === "success") side = '<span class="pill p-done num">성공 +' + fmt(r.delta) + '원</span>';
     else if (r.status === "fail") side = '<span class="pill p-pen num">실패 ' + fmt(r.delta) + '원</span>';
     else side = '<span class="pill p-hold">보류</span>';
-    html += '<div class="mrow"><div class="mname">' + esc(m.title) + (m.note ? '<small>' + esc(m.note) + '</small>' : '') + '</div><div class="side">' + side + '</div></div>';
+    const badge = m.onceDay ? '<span class="tag-s">돌발</span> ' : '';
+    html += '<div class="mrow"><div class="mname">' + badge + esc(m.title) + (m.note ? '<small>' + esc(m.note) + '</small>' : '') + '</div><div class="side">' + side + '</div></div>';
   });
   return html;
 }
@@ -518,29 +551,29 @@ function viewCal(memberId) {
 /* ----- 아이: 내 용돈 ----- */
 function viewMoney() {
   const t = STATE.today;
-  const missions = myMissions(ME.id);
-  const daily = missions.reduce((s, m) => s + m.amount, 0);
-  const total = monthTotal(ME.id);
-  const isCur = CAL_MONTH === monthOf(t);
-  const elapsed = isCur ? Number(t.split("-")[2]) : daysInMonth(CAL_MONTH);
-  const possible = daily * elapsed;
-  const pct = possible > 0 ? Math.round(Math.max(0, total) / possible * 100) : 0;
+  const bal = balanceOf(ME.id);
+  const earned = monthTotal(ME.id);
+  const paid = paidThisMonth(ME.id);
   const [y, m] = CAL_MONTH.split("-").map(Number);
-  let html = '<div class="cal-head"><button data-act="mon" data-dir="-1">‹</button><b>' + y + '년 ' + m + '월</b><button data-act="mon" data-dir="1">›</button></div>';
-  html += '<div class="card bal"><div class="t">' + (isCur ? "지금까지 모은 돈" : m + "월에 모은 돈") + '</div><div class="v num">' + won(total) + '</div>' +
-    '<div class="meter"><i style="width:' + Math.min(100, pct) + '%"></i></div>' +
-    '<div class="m num">지금까지 받을 수 있던 돈의 ' + pct + '%를 모았어요' + (pct >= 90 ? " · 최고!" : pct >= 70 ? " · 잘하고 있어요!" : "") + '</div></div>';
-  const rs = allRecords().filter(r => r.memberId === ME.id && monthOf(r.day) === CAL_MONTH && r.delta !== 0)
-    .sort((a, b) => b.day.localeCompare(a.day));
+  let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
+    '<div class="m num">모은 용돈에서 받아간 만큼 빠져요</div></div>';
+  html += '<div class="cal-head"><button data-act="mon" data-dir="-1">‹</button><b>' + y + '년 ' + m + '월</b><button data-act="mon" data-dir="1">›</button></div>';
+  html += '<div class="lrow"><b>' + m + '월 요약</b><span class="num">모음 +' + fmt(earned) + ' · 받음 ' + won(paid) + '</span></div>';
+  // 적립/차감 + 지급을 날짜순으로 합쳐 표시
   const mp = missionMap();
-  html += '<div class="lrow"><b>내역</b><span class="num">' + rs.length + '건</span></div><div class="card">';
-  if (!rs.length) html += '<div class="empty">아직 내역이 없어요</div>';
-  rs.slice(0, 40).forEach(r => {
-    const mm = mp[r.missionId];
-    html += '<div class="dline"><span><small class="mut num">' + r.day.slice(5).replace("-", "/") + '</small>  ' + esc(mm ? mm.title : "미션") + '</span>' +
-      '<span class="' + (r.delta < 0 ? "no" : "ok") + ' num">' + (r.delta > 0 ? "+" : "") + fmt(r.delta) + '</span></div>';
+  const items = [];
+  allRecords().filter(r => r.memberId === ME.id && monthOf(r.day) === CAL_MONTH && r.delta !== 0)
+    .forEach(r => items.push({ day: r.day, label: (mp[r.missionId] ? mp[r.missionId].title : "미션"), delta: r.delta }));
+  (STATE.payouts || []).filter(p => p.memberId === ME.id && monthOf(p.day) === CAL_MONTH)
+    .forEach(p => items.push({ day: p.day, label: "💸 용돈 받음" + (p.memo ? " (" + p.memo + ")" : ""), delta: -p.amount, pay: true }));
+  items.sort((a, b) => b.day.localeCompare(a.day));
+  html += '<div class="card">';
+  if (!items.length) html += '<div class="empty">아직 내역이 없어요</div>';
+  items.slice(0, 60).forEach(it => {
+    html += '<div class="dline"><span><small class="mut num">' + it.day.slice(5).replace("-", "/") + '</small>  ' + esc(it.label) + '</span>' +
+      '<span class="' + (it.delta < 0 ? (it.pay ? "wt" : "no") : "ok") + ' num">' + (it.delta > 0 ? "+" : "") + fmt(it.delta) + '</span></div>';
   });
-  html += '</div><div class="card mut" style="font-size:11.5px">💡 매달 말 부모님이 정산하면 이번 달 모은 돈을 실제 용돈으로 받아요.</div>';
+  html += '</div>';
   return html;
 }
 
@@ -578,20 +611,62 @@ function viewApprove() {
   return html;
 }
 
+/* ----- 부모: 지급 ----- */
+function viewPayout() {
+  const kids = (STATE.members || []).filter(m => m.role === "child");
+  let html = '<div class="lrow"><b style="font-size:16px">용돈 지급</b><span>아무 때나 줄 수 있어요</span></div>';
+  kids.forEach(k => {
+    const bal = balanceOf(k.id);
+    html += '<div class="card">';
+    html += '<div class="kh"><span class="ava sm" style="background:' + k.color + '">' + esc(k.name[0]) + '</span><b>' + esc(k.name) + '</b>' +
+      '<div class="sum"><b class="num">' + won(bal) + '</b><small>지금 지갑</small></div></div>';
+    html += '<div class="payrow">' +
+      '<input type="number" id="pay-' + k.id + '" inputmode="numeric" placeholder="지급액" ' + (bal > 0 ? '' : 'disabled') + '>' +
+      '<button class="btn ghost sm2" data-act="payfull" data-k="' + k.id + '" data-b="' + bal + '" ' + (bal > 0 ? '' : 'disabled') + '>전액</button>' +
+      '<button class="btn sm2" data-act="payout" data-k="' + k.id + '" ' + (bal > 0 ? '' : 'disabled') + '>지급</button>' +
+      '</div>';
+    html += '<input type="text" id="paymemo-' + k.id + '" class="memoin" placeholder="메모 (예: 문구점, 저금통) — 선택">';
+    const ps = (STATE.payouts || []).filter(p => p.memberId === k.id);
+    if (ps.length) {
+      html += '<div class="paylist">';
+      ps.slice(0, 6).forEach(p => {
+        html += '<div class="dline"><span><small class="mut num">' + p.day.slice(5).replace("-", "/") + '</small>  ' +
+          (p.memo ? esc(p.memo) : "용돈 지급") + '</span><span class="wt num">−' + fmt(p.amount) + '</span>' +
+          '<button class="undo" data-act="payundo" data-id="' + p.id + '">되돌리기</button></div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  html += '<div class="card mut" style="font-size:11.5px">💡 지급하면 아이 지갑에서 그만큼 빠지고 아이 폰에 알림이 가요. 잘못 눌렀으면 되돌리기로 취소할 수 있어요.</div>';
+  return html;
+}
+
 /* ----- 부모: 미션 관리 ----- */
 function viewMissions() {
   const kids = (STATE.members || []).filter(m => m.role === "child");
-  const list = (STATE.missions || []).slice().sort((a, b) => (b.active - a.active) || (a.sort - b.sort));
-  let html = '<div class="lrow"><b style="font-size:16px">미션 관리</b><button style="color:var(--green); font-weight:800" data-act="mnew">+ 새 미션</button></div>';
+  const kchip = m => kids.map(k =>
+    '<span class="kchip" style="background:' + (m.targets.includes(k.id) ? k.color : "var(--line)") + ';' + (m.targets.includes(k.id) ? "" : "color:var(--mut)") + '">' + esc(k.name[0]) + '</span>').join("");
+  const list = (STATE.missions || []).filter(m => !m.onceDay).sort((a, b) => (b.active - a.active) || (a.sort - b.sort));
+  let html = '<div class="lrow"><b style="font-size:16px">미션 관리</b><span><button class="linkbtn" data-act="snew">⚡ 돌발</button> <button class="linkbtn" data-act="mnew">+ 새 미션</button></span></div>';
   if (!list.length) html += '<div class="empty">미션이 없어요. 첫 미션을 만들어보세요!</div>';
   list.forEach(m => {
     html += '<button class="mm' + (m.active ? "" : " off") + '" data-act="medit" data-id="' + m.id + '">' +
       '<div class="info"><b>' + esc(m.title) + (m.active ? "" : " (쉬는 중)") + '</b>' +
       '<small class="num">성공 +' + fmt(m.amount) + ' · 실패 −' + fmt(m.penalty) + (m.note ? ' · ' + esc(m.note) : '') + '</small></div>' +
-      '<div class="kids">' + kids.map(k =>
-        '<span class="kchip" style="background:' + (m.targets.includes(k.id) ? k.color : "var(--line)") + ';' + (m.targets.includes(k.id) ? "" : "color:var(--mut)") + '">' + esc(k.name[0]) + '</span>'
-      ).join("") + '</div><span class="chev">›</span></button>';
+      '<div class="kids">' + kchip(m) + '</div><span class="chev">›</span></button>';
   });
+  // 돌발 미션 (오늘·다가올 것만)
+  const upcoming = surpriseMissions().filter(m => m.onceDay >= STATE.today);
+  if (upcoming.length) {
+    html += '<div class="lrow" style="margin-top:6px"><b>⚡ 돌발 미션</b><span>1회성</span></div>';
+    upcoming.forEach(m => {
+      html += '<button class="mm" data-act="medit" data-id="' + m.id + '">' +
+        '<div class="info"><b>' + esc(m.title) + '</b><small class="num">' +
+        (m.onceDay === STATE.today ? "오늘" : m.onceDay.slice(5).replace("-", "/")) + ' · +' + fmt(m.amount) + '</small></div>' +
+        '<div class="kids">' + kchip(m) + '</div><span class="chev">›</span></button>';
+    });
+  }
   return html;
 }
 
@@ -608,9 +683,9 @@ function viewStatus() {
     const gb = goodBadDays(k.id);
     const pen = allRecords().filter(r => r.memberId === k.id && monthOf(r.day) === CAL_MONTH && r.delta < 0).reduce((s, r) => s + r.delta, 0);
     html += '<div class="card"><div class="kh"><span class="ava sm" style="background:' + k.color + '">' + esc(k.name[0]) + '</span><b>' + esc(k.name) + '</b>' +
-      '<div class="sum"><b class="num">' + won(total) + '</b><small class="num">만점 ' + won(max) + ' · ' + pct + '%</small></div></div>' +
+      '<div class="sum"><b class="num">지갑 ' + won(balanceOf(k.id)) + '</b><small class="num">' + m + '월 +' + fmt(total) + ' · ' + pct + '%</small></div></div>' +
       '<div class="meter"><i style="width:' + Math.min(100, pct) + '%; background:' + k.color + '"></i></div>' +
-      '<div class="mut num" style="font-size:11px; margin-top:5px">잘한 날 ' + gb.good + ' · 아쉬운 날 ' + gb.bad + ' · 페널티 ' + won(pen) + '</div></div>';
+      '<div class="mut num" style="font-size:11px; margin-top:5px">잘한 날 ' + gb.good + ' · 아쉬운 날 ' + gb.bad + ' · 페널티 ' + won(pen) + (paidThisMonth(k.id) ? ' · 지급 ' + won(paidThisMonth(k.id)) : '') + '</div></div>';
   });
   /* 미션별 성공률 */
   const mp = missionMap();
@@ -660,22 +735,32 @@ function viewSheet() {
   const kids = (STATE.members || []).filter(m => m.role === "child");
   const s = SHEET;
   const isNew = !s.id;
-  return '<div class="sheet-bg" data-act="mclose"></div><div class="sheet">' +
-    '<h3>' + (isNew ? "새 미션" : "미션 수정") + '</h3>' +
-    '<div class="fld"><label>미션 이름</label><input type="text" id="f-title" value="' + esc(s.title || "") + '" placeholder="예: 가방 정리"></div>' +
-    '<div class="fld"><label>메모 (선택)</label><input type="text" id="f-note" value="' + esc(s.note || "") + '" placeholder="예: 작은책 3권 · 큰책 1권"></div>' +
-    '<div class="frow">' +
-    '<div class="fld"><label>성공 금액 (원)</label><input type="number" id="f-amount" inputmode="numeric" value="' + (s.amount ?? 100) + '"></div>' +
-    '<div class="fld"><label>실패 페널티 (원)</label><input type="number" id="f-penalty" inputmode="numeric" value="' + (s.penalty ?? 100) + '"></div>' +
-    '</div>' +
-    '<div class="fld"><label>누구의 미션인가요?</label><div class="ckrow" id="f-targets">' +
-    kids.map(k => '<button class="ck' + ((s.targets || kids.map(x => x.id)).includes(k.id) ? " on" : "") + '" data-tid="' + k.id + '">' + esc(k.name) + '</button>').join("") +
-    '</div></div>' +
-    '<div class="fld"><label>상태</label><div class="ckrow"><button class="ck' + (s.active !== false ? " on" : "") + '" id="f-active">' + (s.active !== false ? "진행 중" : "쉬는 중 (오늘 목록에서 숨김)") + '</button></div></div>' +
-    '<button class="btn wide" data-act="msave">저장</button>' +
-    (isNew ? "" : '<button class="btn wide red" data-act="mdel">이 미션 삭제</button>') +
-    '<button class="btn wide ghost" data-act="mclose">닫기</button>' +
-    '</div>';
+  const sp = !!(s._surprise || s.onceDay);
+  const tgt = s.targets || kids.map(x => x.id);
+  let h = '<div class="sheet-bg" data-act="mclose"></div><div class="sheet">';
+  h += '<h3>' + (sp ? (isNew ? "⚡ 돌발 미션 만들기" : "돌발 미션 수정") : (isNew ? "새 미션" : "미션 수정")) + '</h3>';
+  if (sp) h += '<div class="hint">오늘(또는 고른 날) 딱 한 번만 뜨는 특별 미션이에요.</div>';
+  h += '<div class="fld"><label>미션 이름</label><input type="text" id="f-title" value="' + esc(s.title || "") + '" placeholder="' + (sp ? "예: 방 청소 도와주기" : "예: 가방 정리") + '"></div>';
+  h += '<div class="fld"><label>메모 (선택)</label><input type="text" id="f-note" value="' + esc(s.note || "") + '" placeholder="예: 작은책 3권 · 큰책 1권"></div>';
+  if (sp) {
+    h += '<div class="frow">' +
+      '<div class="fld"><label>성공 금액 (원)</label><input type="number" id="f-amount" inputmode="numeric" value="' + (s.amount ?? 500) + '"></div>' +
+      '<div class="fld"><label>날짜</label><input type="date" id="f-day" value="' + (s.onceDay || STATE.today) + '"></div>' +
+      '</div>';
+  } else {
+    h += '<div class="frow">' +
+      '<div class="fld"><label>성공 금액 (원)</label><input type="number" id="f-amount" inputmode="numeric" value="' + (s.amount ?? 100) + '"></div>' +
+      '<div class="fld"><label>실패 페널티 (원)</label><input type="number" id="f-penalty" inputmode="numeric" value="' + (s.penalty ?? 100) + '"></div>' +
+      '</div>';
+  }
+  h += '<div class="fld"><label>누구의 미션인가요?</label><div class="ckrow" id="f-targets">' +
+    kids.map(k => '<button class="ck' + (tgt.includes(k.id) ? " on" : "") + '" data-tid="' + k.id + '">' + esc(k.name) + '</button>').join("") +
+    '</div></div>';
+  if (!sp) h += '<div class="fld"><label>상태</label><div class="ckrow"><button class="ck' + (s.active !== false ? " on" : "") + '" id="f-active">' + (s.active !== false ? "진행 중" : "쉬는 중 (오늘 목록에서 숨김)") + '</button></div></div>';
+  h += '<button class="btn wide" data-act="msave">저장</button>';
+  if (!isNew) h += '<button class="btn wide red" data-act="mdel">삭제</button>';
+  h += '<button class="btn wide ghost" data-act="mclose">닫기</button></div>';
+  return h;
 }
 
 /* ---------- 액션 ---------- */
@@ -702,18 +787,36 @@ function onJudgeDayChange() {
   else render();
 }
 async function saveMission() {
+  const sp = !!(SHEET._surprise || SHEET.onceDay);
   const title = $("#f-title").value.trim();
   if (!title) return toast("미션 이름을 적어주세요");
   const amount = Math.max(0, Number($("#f-amount").value) || 0);
-  const penalty = Math.max(0, Number($("#f-penalty").value) || 0);
+  const penalty = sp ? 0 : Math.max(0, Number($("#f-penalty").value) || 0);
   const note = $("#f-note").value.trim();
   const targets = [...document.querySelectorAll("#f-targets .ck.on")].map(b => b.dataset.tid);
   if (!targets.length) return toast("대상을 한 명 이상 골라주세요");
-  const active = $("#f-active").classList.contains("on");
+  const active = sp ? true : $("#f-active").classList.contains("on");
+  const onceDay = sp ? ($("#f-day").value || todayStr()) : null;
   try {
-    await api("mission_save", { id: SHEET.id || null, title, note, amount, penalty, targets, active });
-    SHEET = null; toast("저장했어요"); await loadState();
+    await api("mission_save", { id: SHEET.id || null, title, note, amount, penalty, targets, active, onceDay });
+    SHEET = null; toast(sp ? "돌발 미션을 냈어요! ⚡" : "저장했어요"); await loadState();
   } catch (e) { toast(e.message); }
+}
+async function doPayout(kid) {
+  const amt = Math.floor(Number(($("#pay-" + kid) || {}).value) || 0);
+  const memo = (($("#paymemo-" + kid) || {}).value || "").trim();
+  if (amt <= 0) return toast("지급액을 입력해 주세요");
+  const k = (STATE.members || []).find(x => x.id === kid);
+  if (!confirm((k ? k.name : "아이") + "에게 " + won(amt) + " 지급할까요?\n지갑에서 그만큼 빠져요.")) return;
+  try {
+    await api("payout", { memberId: kid, amount: amt, memo });
+    toast("지급했어요 💸"); await loadState();
+  } catch (e) { toast(e.message); }
+}
+async function doPayUndo(id) {
+  if (!confirm("이 지급을 되돌릴까요? 지갑으로 다시 들어가요.")) return;
+  try { await api("payout_delete", { id }); toast("되돌렸어요"); await loadState(); }
+  catch (e) { toast(e.message); }
 }
 async function deleteMission() {
   if (!confirm("이 미션을 삭제할까요?\n기록이 있는 미션은 '쉬는 중'으로 바뀌어요.")) return;
@@ -798,6 +901,12 @@ document.addEventListener("click", e => {
       onJudgeDayChange(); break;
     }
     case "mnew": SHEET = {}; render(); break;
+    case "snew": SHEET = { _surprise: true, onceDay: todayStr() }; render(); break;
+    case "payout": doPayout(d.k); break;
+    case "payfull": {
+      const inp = $("#pay-" + d.k); if (inp) inp.value = d.b; break;
+    }
+    case "payundo": doPayUndo(d.id); break;
     case "medit": {
       const mm = (STATE.missions || []).find(x => x.id === d.id);
       if (mm) { SHEET = JSON.parse(JSON.stringify(mm)); render(); }
