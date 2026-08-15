@@ -133,6 +133,16 @@
   .paylist{margin-top:8px; border-top:1px solid var(--line); padding-top:4px;}
   .paylist .dline{align-items:center;}
   .undo{flex:none; margin-left:8px; font-size:10.5px; font-weight:700; color:var(--mut); border:1px solid var(--line); border-radius:8px; padding:3px 8px;}
+  /* 상점 */
+  .shop{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .shopitem{display:flex; flex-direction:column; align-items:center; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 8px;}
+  .shopitem .emoji{font-size:30px; line-height:1;}
+  .shopitem b{font-size:13px; text-align:center; line-height:1.25;}
+  .shopitem .price{font-size:12.5px; font-weight:800; color:var(--green);}
+  .shopitem.off{opacity:.5;}
+  .shopitem:active{background:var(--greenbg);}
+  .emojipick{width:40px; height:40px; border-radius:11px; border:1.5px solid var(--line); background:var(--bg); font-size:20px;}
+  .emojipick.on{border-color:var(--green); background:var(--greenbg);}
 
   /* 현황 */
   .kh{display:flex; align-items:center; gap:9px; margin-bottom:8px;}
@@ -221,7 +231,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.1";
+const APPVER = "1.0.2";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -232,6 +242,7 @@ let CAL_MONTH = "", SEL_DAY = "";
 let LOGIN_MEMBERS = null, LOGIN_SEL = null, PIN = "";
 let JKID = null, JDAY = "";
 let SHEET = null; // 미션 편집 대상 {} or {id...}
+let SHOPSHEET = null; // 상점 메뉴 편집 대상
 let PUSH_DISMISSED = false;
 
 /* ---------- 유틸 ---------- */
@@ -321,7 +332,7 @@ async function loadState(silent) {
     STATE = j;
     if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
     const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
-    if (silent && (SHEET || typing)) return;   // 입력 중·시트 열림이면 화면 유지
+    if (silent && (SHEET || SHOPSHEET || typing)) return;   // 입력 중·시트 열림이면 화면 유지
     render();
   } catch (e) { if (!silent) toast(e.message); }
 }
@@ -419,6 +430,10 @@ function paidThisMonth(memberId) {
   return (STATE.payouts || []).filter(p => p.memberId === memberId)
     .reduce((s, p) => s + p.amount, 0);
 }
+function savingsOf(memberId) {
+  return (STATE.savings && STATE.savings[memberId]) || 0;
+}
+function shopItems() { return STATE.shopItems || []; }
 function monthTotal(memberId) {
   return allRecords().filter(r => r.memberId === memberId && monthOf(r.day) === CAL_MONTH)
     .reduce((s, r) => s + r.delta, 0);
@@ -451,7 +466,7 @@ function render() {
   const isParent = ME.role === "parent";
   const tabs = isParent
     ? [["approve", "승인"], ["missions", "미션"], ["payout", "지급"], ["status", "현황"]]
-    : [["today", "오늘"], ["cal", "달력"], ["money", "내 용돈"]];
+    : [["today", "오늘"], ["cal", "달력"], ["shop", "상점"], ["money", "내 용돈"]];
   let html = '<div class="body">';
   html += '<div class="head"><span class="ava" style="background:' + ME.color + '">' + esc(ME.name[0]) + '</span>' +
     '<div class="who"><b>' + (isParent ? esc(ME.name) + ' (관리자)' : '안녕, ' + esc(ME.name) + '!') + '</b>' +
@@ -466,6 +481,7 @@ function render() {
   } else {
     if (TAB === "today") html += viewToday();
     else if (TAB === "cal") html += viewCal(ME.id);
+    else if (TAB === "shop") html += viewShop();
     else html += viewMoney();
   }
   html += '</div>';
@@ -474,6 +490,7 @@ function render() {
   ).join("") + '</nav>';
   APP.innerHTML = html;
   if (SHEET) APP.insertAdjacentHTML("beforeend", viewSheet());
+  if (SHOPSHEET) APP.insertAdjacentHTML("beforeend", viewShopSheet());
   const jd = $("#jdate");
   if (jd) jd.onchange = e => { JDAY = e.target.value || todayStr(); onJudgeDayChange(); };
 }
@@ -548,24 +565,58 @@ function viewCal(memberId) {
   return html;
 }
 
+/* ----- 아이: 상점 + 맡기기 ----- */
+function viewShop() {
+  const bal = balanceOf(ME.id);
+  const items = shopItems().filter(i => i.active);
+  let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
+    '<div class="m num">' + (savingsOf(ME.id) ? "저금통에 " + won(savingsOf(ME.id)) + " 모았어요 🐷" : "사고 싶은 걸 골라봐요") + '</div></div>';
+  html += '<div class="lrow"><b>🛒 상점</b><span>지갑에서 바로 빠져요</span></div>';
+  html += '<div class="shop">';
+  if (!items.length) html += '<div class="empty">아직 살 수 있는 게 없어요</div>';
+  items.forEach(it => {
+    const can = bal >= it.price;
+    html += '<button class="shopitem' + (can ? "" : " off") + '" ' + (can ? 'data-act="buy" data-id="' + it.id + '" data-n="' + esc(it.name) + '" data-p="' + it.price + '"' : "disabled") + '>' +
+      '<span class="emoji">' + esc(it.emoji) + '</span><b>' + esc(it.name) + '</b><span class="price num">' + won(it.price) + '</span></button>';
+  });
+  html += '</div>';
+  html += '<div class="lrow" style="margin-top:6px"><b>🐷 부모님께 맡기기</b><span>저금</span></div>';
+  html += '<div class="card"><div class="payrow">' +
+    '<input type="number" id="giveamt" inputmode="numeric" placeholder="맡길 금액" ' + (bal > 0 ? "" : "disabled") + '>' +
+    '<button class="btn ghost sm2" data-act="givefull" data-b="' + bal + '" ' + (bal > 0 ? "" : "disabled") + '>전액</button>' +
+    '<button class="btn sm2" data-act="give" ' + (bal > 0 ? "" : "disabled") + '>맡기기</button></div>' +
+    '<input type="text" id="givememo" class="memoin" placeholder="메모 (예: 저금통, 장난감 사려고) — 선택"></div>';
+  const sp = (STATE.spends || []).filter(s => s.memberId === ME.id).slice(0, 8);
+  if (sp.length) {
+    html += '<div class="lrow"><b>최근 쓴 내역</b></div><div class="card">';
+    sp.forEach(s => html += '<div class="dline"><span>' + (s.kind === "save" ? "🐷 맡김" + (s.label ? " (" + esc(s.label) + ")" : "") : "🛒 " + esc(s.label)) + '</span><span class="wt num">−' + fmt(s.amount) + '</span></div>');
+    html += '</div>';
+  }
+  return html;
+}
+
 /* ----- 아이: 내 용돈 ----- */
 function viewMoney() {
   const t = STATE.today;
   const bal = balanceOf(ME.id);
   const earned = monthTotal(ME.id);
   const paid = paidThisMonth(ME.id);
+  const sav = savingsOf(ME.id);
   const [y, m] = CAL_MONTH.split("-").map(Number);
   let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
-    '<div class="m num">모은 용돈에서 받아간 만큼 빠져요</div></div>';
+    '<div class="m num">' + (sav ? "저금통 🐷 " + won(sav) + " · 쓴 만큼 빠져요" : "모은 용돈에서 쓴 만큼 빠져요") + '</div></div>';
   html += '<div class="cal-head"><button data-act="mon" data-dir="-1">‹</button><b>' + y + '년 ' + m + '월</b><button data-act="mon" data-dir="1">›</button></div>';
-  html += '<div class="lrow"><b>' + m + '월 요약</b><span class="num">모음 +' + fmt(earned) + ' · 받음 ' + won(paid) + '</span></div>';
-  // 적립/차감 + 지급을 날짜순으로 합쳐 표시
+  const spentM = (STATE.spends || []).filter(s => s.memberId === ME.id && monthOf(s.day) === CAL_MONTH).reduce((s, x) => s + x.amount, 0);
+  html += '<div class="lrow"><b>' + m + '월 요약</b><span class="num">모음 +' + fmt(earned) + ' · 씀 ' + won(spentM + paid) + '</span></div>';
+  // 적립/차감 + 지급 + 소비(구매·저금)를 날짜순으로 합쳐 표시
   const mp = missionMap();
   const items = [];
   allRecords().filter(r => r.memberId === ME.id && monthOf(r.day) === CAL_MONTH && r.delta !== 0)
     .forEach(r => items.push({ day: r.day, label: (mp[r.missionId] ? mp[r.missionId].title : "미션"), delta: r.delta }));
   (STATE.payouts || []).filter(p => p.memberId === ME.id && monthOf(p.day) === CAL_MONTH)
     .forEach(p => items.push({ day: p.day, label: "💸 용돈 받음" + (p.memo ? " (" + p.memo + ")" : ""), delta: -p.amount, pay: true }));
+  (STATE.spends || []).filter(s => s.memberId === ME.id && monthOf(s.day) === CAL_MONTH)
+    .forEach(s => items.push({ day: s.day, label: (s.kind === "save" ? "🐷 맡김" + (s.label ? " (" + s.label + ")" : "") : "🛒 " + s.label), delta: -s.amount, pay: true }));
   items.sort((a, b) => b.day.localeCompare(a.day));
   html += '<div class="card">';
   if (!items.length) html += '<div class="empty">아직 내역이 없어요</div>';
@@ -619,7 +670,7 @@ function viewPayout() {
     const bal = balanceOf(k.id);
     html += '<div class="card">';
     html += '<div class="kh"><span class="ava sm" style="background:' + k.color + '">' + esc(k.name[0]) + '</span><b>' + esc(k.name) + '</b>' +
-      '<div class="sum"><b class="num">' + won(bal) + '</b><small>지금 지갑</small></div></div>';
+      '<div class="sum"><b class="num">' + won(bal) + '</b><small class="num">지금 지갑' + (savingsOf(k.id) ? ' · 저금 ' + won(savingsOf(k.id)) : "") + '</small></div></div>';
     html += '<div class="payrow">' +
       '<input type="number" id="pay-' + k.id + '" inputmode="numeric" placeholder="지급액" ' + (bal > 0 ? '' : 'disabled') + '>' +
       '<button class="btn ghost sm2" data-act="payfull" data-k="' + k.id + '" data-b="' + bal + '" ' + (bal > 0 ? '' : 'disabled') + '>전액</button>' +
@@ -638,6 +689,21 @@ function viewPayout() {
     }
     html += '</div>';
   });
+  // 아이가 쓴 내역 (상점 구매·저금) + 되돌리기
+  const sp = (STATE.spends || []);
+  if (sp.length) {
+    const pm = memberMap();
+    html += '<div class="lrow" style="margin-top:6px"><b>아이가 쓴 내역</b><span>구매·저금</span></div><div class="card">';
+    sp.slice(0, 14).forEach(s => {
+      const kid = pm[s.memberId];
+      html += '<div class="dline"><span><small class="mut num">' + s.day.slice(5).replace("-", "/") + '</small>  ' +
+        (kid ? esc(kid.name) + ' · ' : "") + (s.kind === "save" ? "🐷 맡김" : "🛒 " + esc(s.label)) +
+        (s.kind === "save" && s.label ? " (" + esc(s.label) + ")" : "") +
+        '</span><span class="wt num">−' + fmt(s.amount) + '</span>' +
+        '<button class="undo" data-act="spendundo" data-id="' + s.id + '">되돌리기</button></div>';
+    });
+    html += '</div>';
+  }
   html += '<div class="card mut" style="font-size:11.5px">💡 지급하면 아이 지갑에서 그만큼 빠지고 아이 폰에 알림이 가요. 잘못 눌렀으면 되돌리기로 취소할 수 있어요.</div>';
   return html;
 }
@@ -667,6 +733,15 @@ function viewMissions() {
         '<div class="kids">' + kchip(m) + '</div><span class="chev">›</span></button>';
     });
   }
+  // 상점 메뉴 관리
+  html += '<div class="lrow" style="margin-top:8px"><b>🛒 상점 메뉴</b><button class="linkbtn" data-act="shopnew">+ 메뉴</button></div>';
+  const sitems = shopItems().slice().sort((a, b) => (b.active - a.active) || (a.sort - b.sort));
+  if (!sitems.length) html += '<div class="empty">아이가 살 수 있는 메뉴를 추가해보세요!</div>';
+  sitems.forEach(it => {
+    html += '<button class="mm' + (it.active ? "" : " off") + '" data-act="shopedit" data-id="' + it.id + '">' +
+      '<div class="info"><b>' + esc(it.emoji) + ' ' + esc(it.name) + (it.active ? "" : " (숨김)") + '</b><small class="num">' + won(it.price) + '</small></div>' +
+      '<span class="chev">›</span></button>';
+  });
   return html;
 }
 
@@ -763,6 +838,25 @@ function viewSheet() {
   return h;
 }
 
+/* ----- 상점 메뉴 편집 시트 ----- */
+function viewShopSheet() {
+  const s = SHOPSHEET;
+  const isNew = !s.id;
+  const emojis = ["🛒", "💻", "📺", "🎮", "🍫", "🍦", "🧸", "🛝", "🚲", "📚", "🎨", "🎬", "🍿", "💤", "⭐"];
+  return '<div class="sheet-bg" data-act="shopclose"></div><div class="sheet">' +
+    '<h3>' + (isNew ? "🛒 새 상점 메뉴" : "메뉴 수정") + '</h3>' +
+    '<div class="hint">아이가 지갑으로 살 수 있는 것들이에요 (컴퓨터 시간, 군것질 등).</div>' +
+    '<div class="fld"><label>아이콘</label><div class="ckrow" id="s-emoji">' +
+    emojis.map(e => '<button class="emojipick' + ((s.emoji || "🛒") === e ? " on" : "") + '" data-emoji="' + e + '">' + e + '</button>').join("") +
+    '</div></div>' +
+    '<div class="fld"><label>메뉴 이름</label><input type="text" id="s-name" value="' + esc(s.name || "") + '" placeholder="예: 컴퓨터 1시간"></div>' +
+    '<div class="fld"><label>가격 (원)</label><input type="number" id="s-price" inputmode="numeric" value="' + (s.price ?? 500) + '"></div>' +
+    '<div class="fld"><label>상태</label><div class="ckrow"><button class="ck' + (s.active !== false ? " on" : "") + '" id="s-active">' + (s.active !== false ? "판매 중" : "숨김") + '</button></div></div>' +
+    '<button class="btn wide" data-act="shopsave">저장</button>' +
+    (isNew ? "" : '<button class="btn wide red" data-act="shopdel">삭제</button>') +
+    '<button class="btn wide ghost" data-act="shopclose">닫기</button></div>';
+}
+
 /* ---------- 액션 ---------- */
 async function doReq(missionId) {
   try { await api("request", { missionId, day: todayStr() }); toast("부모님께 알림을 보냈어요! 📮"); await loadState(); }
@@ -817,6 +911,43 @@ async function doPayUndo(id) {
   if (!confirm("이 지급을 되돌릴까요? 지갑으로 다시 들어가요.")) return;
   try { await api("payout_delete", { id }); toast("되돌렸어요"); await loadState(); }
   catch (e) { toast(e.message); }
+}
+async function doBuy(id, name, price) {
+  if (!confirm("'" + name + "'을(를) " + won(price) + "에 살까요?\n지갑에서 빠져요.")) return;
+  try { await api("buy", { itemId: id }); toast("샀어요! 🛒 부모님께 알림이 갔어요"); await loadState(); }
+  catch (e) { toast(e.message); }
+}
+async function doGive() {
+  const amt = Math.floor(Number(($("#giveamt") || {}).value) || 0);
+  const memo = (($("#givememo") || {}).value || "").trim();
+  if (amt <= 0) return toast("맡길 금액을 입력해 주세요");
+  if (!confirm(won(amt) + "을 부모님께 맡길까요?\n지갑에서 빠지고 저금통에 쌓여요 🐷")) return;
+  try { await api("give", { amount: amt, memo }); toast("맡겼어요 🐷"); await loadState(); }
+  catch (e) { toast(e.message); }
+}
+async function doSpendUndo(id) {
+  if (!confirm("이 내역을 되돌릴까요? 지갑으로 다시 들어가요.")) return;
+  try { await api("spend_delete", { id }); toast("되돌렸어요"); await loadState(); }
+  catch (e) { toast(e.message); }
+}
+async function saveShop() {
+  const name = $("#s-name").value.trim();
+  if (!name) return toast("메뉴 이름을 적어주세요");
+  const price = Math.max(0, Number($("#s-price").value) || 0);
+  const emoji = (document.querySelector("#s-emoji .emojipick.on") || {}).dataset ? document.querySelector("#s-emoji .emojipick.on").dataset.emoji : "🛒";
+  const active = $("#s-active").classList.contains("on");
+  try {
+    await api("shop_save", { id: SHOPSHEET.id || null, name, price, emoji, active });
+    SHOPSHEET = null; toast("저장했어요"); await loadState();
+  } catch (e) { toast(e.message); }
+}
+async function deleteShop() {
+  if (!confirm("이 메뉴를 삭제할까요?")) return;
+  try {
+    const j = await api("shop_delete", { id: SHOPSHEET.id });
+    SHOPSHEET = null; toast(j.deleted ? "삭제했어요" : "구매기록이 있어 '숨김'으로 바꿨어요");
+    await loadState();
+  } catch (e) { toast(e.message); }
 }
 async function deleteMission() {
   if (!confirm("이 미션을 삭제할까요?\n기록이 있는 미션은 '쉬는 중'으로 바뀌어요.")) return;
@@ -873,6 +1004,11 @@ async function checkVersion() {
 document.addEventListener("click", e => {
   const tid = e.target.closest("[data-tid]");
   if (tid) { tid.classList.toggle("on"); return; }
+  const emo = e.target.closest("[data-emoji]");
+  if (emo) {
+    [...document.querySelectorAll("#s-emoji .emojipick")].forEach(b => b.classList.remove("on"));
+    emo.classList.add("on"); return;
+  }
   const act = e.target.closest("[data-act]");
   if (!act) return;
   const d = act.dataset;
@@ -907,6 +1043,19 @@ document.addEventListener("click", e => {
       const inp = $("#pay-" + d.k); if (inp) inp.value = d.b; break;
     }
     case "payundo": doPayUndo(d.id); break;
+    case "buy": doBuy(d.id, d.n, Number(d.p)); break;
+    case "give": doGive(); break;
+    case "givefull": { const inp = $("#giveamt"); if (inp) inp.value = d.b; break; }
+    case "spendundo": doSpendUndo(d.id); break;
+    case "shopnew": SHOPSHEET = {}; render(); break;
+    case "shopedit": {
+      const it = shopItems().find(x => x.id === d.id);
+      if (it) { SHOPSHEET = JSON.parse(JSON.stringify(it)); render(); }
+      break;
+    }
+    case "shopclose": SHOPSHEET = null; render(); break;
+    case "shopsave": saveShop(); break;
+    case "shopdel": deleteShop(); break;
     case "medit": {
       const mm = (STATE.missions || []).find(x => x.id === d.id);
       if (mm) { SHEET = JSON.parse(JSON.stringify(mm)); render(); }
@@ -924,6 +1073,10 @@ document.addEventListener("click", e => {
   if (e.target.id === "f-active") {
     e.target.classList.toggle("on");
     e.target.textContent = e.target.classList.contains("on") ? "진행 중" : "쉬는 중 (오늘 목록에서 숨김)";
+  }
+  if (e.target.id === "s-active") {
+    e.target.classList.toggle("on");
+    e.target.textContent = e.target.classList.contains("on") ? "판매 중" : "숨김";
   }
 });
 document.addEventListener("visibilitychange", () => {
