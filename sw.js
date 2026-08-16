@@ -1,5 +1,5 @@
 /* 용돈미션 서비스워커 — 설치형(PWA) + 푸시 알림 */
-const VER = "1.0.3";
+const VER = "1.0.4";
 
 self.addEventListener("install", e => self.skipWaiting());
 self.addEventListener("activate", e => {
@@ -20,12 +20,17 @@ self.addEventListener("fetch", e => {
 self.addEventListener("push", e => {
   let d = {};
   try { d = e.data.json(); } catch (err) { d = { title: "용돈미션", body: e.data && e.data.text() }; }
+  const isAlarm = /5분|남았|끝/.test(d.title || "");
   e.waitUntil(self.registration.showNotification(d.title || "용돈미션", {
     body: d.body || "",
     icon: "icon-192.png",
     badge: "icon-192.png",
     data: { url: d.url || "./index.html" },
-    tag: d.tag || undefined
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    silent: false,
+    requireInteraction: isAlarm,                       // 5분 알림은 계속 떠 있게
+    vibrate: isAlarm ? [400, 200, 400, 200, 400] : [200, 100, 200]
   }));
 });
 

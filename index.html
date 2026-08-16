@@ -13,6 +13,7 @@
     --bg:#F6F7F3; --card:#FFFFFF; --ink:#20281F; --mut:#7A847B; --line:#E9ECE4;
     --green:#1FA26B; --greenbg:#E2F3EA; --amber:#C87F07; --amberbg:#FAEFD8;
     --red:#D94E45; --redbg:#FBE6E3; --grey:#8B948C; --greybg:#EEF0EA;
+    --blue:#3D74D6; --bluebg:#E4EDFB;
   }
   *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
@@ -130,6 +131,16 @@
   .btn.sm2{padding:9px 13px; flex:none;}
   .payrow2{display:flex; gap:7px; margin-top:8px;}
   .payrow2 .btn{flex:1; text-align:center; padding:11px 4px;}
+  /* 시간제 타이머 */
+  .timers{display:flex; flex-direction:column; gap:8px;}
+  .timer{display:flex; align-items:center; gap:10px; background:var(--bluebg); border:1px solid var(--blue); border-radius:14px; padding:11px 13px;}
+  .timer .ti{font-size:20px; flex:none;}
+  .timer .tinfo{display:flex; flex-direction:column; gap:1px; min-width:0;}
+  .timer .tinfo b{font-size:13px;}
+  .timer .tleft{font-size:12.5px; font-weight:800; color:var(--blue);}
+  .timer .tleft.soon{color:var(--red); animation:tblink 1s steps(1) infinite;}
+  @keyframes tblink{50%{opacity:.35;}}
+  @media (prefers-reduced-motion:reduce){ .timer .tleft.soon{animation:none;} }
   .memoin{width:100%; font:inherit; padding:8px 11px; margin-top:7px; border:1.5px solid var(--line); border-radius:11px; background:var(--bg); color:var(--ink);}
   .memoin:focus{outline:2px solid var(--green); border-color:transparent;}
   .paylist{margin-top:8px; border-top:1px solid var(--line); padding-top:4px;}
@@ -233,7 +244,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.3";
+const APPVER = "1.0.4";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -436,6 +447,71 @@ function savingsOf(memberId) {
   return (STATE.savings && STATE.savings[memberId]) || 0;
 }
 function shopItems() { return STATE.shopItems || []; }
+
+/* ---------- 시간제 타이머 ---------- */
+const TIMER_ALERTED = new Set(JSON.parse(localStorage.getItem("allw_talert") || "[]"));
+function persistAlerted() {
+  localStorage.setItem("allw_talert", JSON.stringify([...TIMER_ALERTED].slice(-40)));
+}
+function activeTimersForMe() {
+  const now = Date.now();
+  return (STATE.spends || []).filter(s => s.endsAt && new Date(s.endsAt).getTime() > now
+    && (ME.role === "parent" || s.memberId === ME.id));
+}
+function fmtRemain(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(s / 60);
+  return m >= 60 ? Math.floor(m / 60) + "시간 " + (m % 60) + "분" : m + "분 " + (s % 60) + "초";
+}
+function timerCard(s) {
+  const pm = memberMap();
+  const kid = pm[s.memberId];
+  const who = (ME.role === "parent" && kid) ? esc(kid.name) + " · " : "";
+  return '<div class="timer" data-id="' + s.id + '"><span class="ti">⏳</span>' +
+    '<div class="tinfo"><b>' + who + esc(s.label) + '</b>' +
+    '<span class="tleft num" data-ends="' + s.endsAt + '">…</span></div></div>';
+}
+function timersBlock() {
+  const ts = activeTimersForMe();
+  if (!ts.length) return "";
+  return '<div class="timers">' + ts.map(timerCard).join("") + '</div>';
+}
+let AUDIO_CTX = null;
+function playAlarm() {
+  try {
+    AUDIO_CTX = AUDIO_CTX || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = AUDIO_CTX;
+    if (ctx.state === "suspended") ctx.resume();
+    [0, 0.5, 1.0].forEach(t0 => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = 880;
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + t0;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      o.start(t); o.stop(t + 0.38);
+    });
+  } catch (e) { /* 오디오 불가 — 무시 */ }
+  if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]);
+}
+function tickTimers() {
+  if (!STATE || !ME) return;
+  const now = Date.now();
+  document.querySelectorAll(".tleft[data-ends]").forEach(el => {
+    const ms = new Date(el.dataset.ends).getTime() - now;
+    el.textContent = ms > 0 ? fmtRemain(ms) + " 남음" : "시간 끝!";
+    el.classList.toggle("soon", ms > 0 && ms <= 5 * 60000);
+  });
+  activeTimersForMe().forEach(s => {
+    const ms = new Date(s.endsAt).getTime() - now;
+    if (ms > 0 && ms <= 5 * 60000 && !TIMER_ALERTED.has(s.id)) {
+      TIMER_ALERTED.add(s.id); persistAlerted();
+      playAlarm();
+      toast("⏰ 5분 남았습니다 — " + s.label);
+    }
+  });
+}
 function monthTotal(memberId) {
   return allRecords().filter(r => r.memberId === memberId && monthOf(r.day) === CAL_MONTH)
     .reduce((s, r) => s + r.delta, 0);
@@ -514,6 +590,7 @@ function viewToday() {
   const doneCnt = missions.filter(m => { const r = recFor(ME.id, m.id, t); return r && r.status === "success"; }).length;
   let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
     '<div class="m num">이번 달 +' + fmt(earned) + '원 모았어요' + (paidThisMonth(ME.id) ? ' · 받은 용돈 ' + won(paidThisMonth(ME.id)) : '') + '</div></div>';
+  html += timersBlock();
   html += '<div class="lrow"><b>오늘의 미션</b><span class="num">' + missions.length + '개 중 ' + doneCnt + '개 성공</span></div>';
   if (!missions.length) html += '<div class="empty">아직 내 미션이 없어요. 부모님께 말해보세요!</div>';
   missions.forEach(m => {
@@ -573,6 +650,7 @@ function viewShop() {
   const items = shopItems().filter(i => i.active);
   let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
     '<div class="m num">사고 싶은 걸 골라봐요</div></div>';
+  html += timersBlock();
   html += '<div class="lrow"><b>🛒 상점</b><span>지갑에서 바로 빠져요</span></div>';
   html += '<div class="shop">';
   if (!items.length) html += '<div class="empty">아직 살 수 있는 게 없어요</div>';
@@ -663,7 +741,18 @@ function viewApprove() {
 /* ----- 부모: 지급 ----- */
 function viewPayout() {
   const kids = (STATE.members || []).filter(m => m.role === "child");
-  let html = '<div class="lrow"><b style="font-size:16px">용돈 넣기 · 지급</b><span>아무 때나</span></div>';
+  let html = "";
+  const tb = timersBlock();
+  if (tb) html += '<div class="lrow"><b>⏳ 사용 중</b><span>시간제 상품</span></div>' + tb;
+  html += '<div class="lrow"><b style="font-size:16px">용돈 넣기 · 지급</b><span>아무 때나</span></div>';
+  // 둘 다에게 같은 금액 한 번에
+  if (kids.length > 1) {
+    html += '<div class="card"><div class="lrow" style="margin:0 0 8px"><b>👥 둘 다에게</b><span>같은 금액 한 번에</span></div>' +
+      '<div class="payrow"><input type="number" id="pay-all" inputmode="numeric" placeholder="금액"></div>' +
+      '<input type="text" id="paymemo-all" class="memoin" placeholder="메모 (예: 이번 주 용돈) — 선택">' +
+      '<div class="payrow2"><button class="btn" data-act="depositall">＋ 둘 다 넣기</button>' +
+      '<button class="btn grey" data-act="payoutall">－ 둘 다 지급</button></div></div>';
+  }
   kids.forEach(k => {
     const bal = balanceOf(k.id);
     html += '<div class="card">';
@@ -854,7 +943,11 @@ function viewShopSheet() {
     emojis.map(e => '<button class="emojipick' + ((s.emoji || "🛒") === e ? " on" : "") + '" data-emoji="' + e + '">' + e + '</button>').join("") +
     '</div></div>' +
     '<div class="fld"><label>메뉴 이름</label><input type="text" id="s-name" value="' + esc(s.name || "") + '" placeholder="예: 컴퓨터 1시간"></div>' +
+    '<div class="frow">' +
     '<div class="fld"><label>가격 (원)</label><input type="number" id="s-price" inputmode="numeric" value="' + (s.price ?? 500) + '"></div>' +
+    '<div class="fld"><label>사용 시간 (분)</label><input type="number" id="s-dur" inputmode="numeric" value="' + (s.durationMin ?? 0) + '"></div>' +
+    '</div>' +
+    '<div class="hint">시간(분)을 넣으면 시간제예요 (예: 컴퓨터 60). 끝나기 5분 전에 부모·아이 폰이 소리로 울려요. 0이면 시간제 아님.</div>' +
     '<div class="fld"><label>상태</label><div class="ckrow"><button class="ck' + (s.active !== false ? " on" : "") + '" id="s-active">' + (s.active !== false ? "판매 중" : "숨김") + '</button></div></div>' +
     '<button class="btn wide" data-act="shopsave">저장</button>' +
     (isNew ? "" : '<button class="btn wide red" data-act="shopdel">삭제</button>') +
@@ -935,6 +1028,20 @@ async function doDepUndo(id) {
   try { await api("deposit_delete", { id }); toast("되돌렸어요"); await loadState(); }
   catch (e) { toast(e.message); }
 }
+async function doBothChildren(action) {
+  const amt = Math.floor(Number(($("#pay-all") || {}).value) || 0);
+  const memo = (($("#paymemo-all") || {}).value || "").trim();
+  if (amt <= 0) return toast("금액을 입력해 주세요");
+  const kids = (STATE.members || []).filter(m => m.role === "child");
+  if (!confirm("두 아이 모두에게 " + won(amt) + "씩 " + (action === "deposit" ? "넣을까요?" : "지급할까요?"))) return;
+  let ok = 0; const fail = [];
+  for (const k of kids) {
+    try { await api(action, { memberId: k.id, amount: amt, memo }); ok++; }
+    catch (e) { fail.push(k.name); }
+  }
+  toast(ok + "명 완료" + (fail.length ? " · 부족: " + fail.join(",") : ""));
+  await loadState();
+}
 async function doSpendUndo(id) {
   if (!confirm("이 내역을 되돌릴까요? 지갑으로 다시 들어가요.")) return;
   try { await api("spend_delete", { id }); toast("되돌렸어요"); await loadState(); }
@@ -944,10 +1051,11 @@ async function saveShop() {
   const name = $("#s-name").value.trim();
   if (!name) return toast("메뉴 이름을 적어주세요");
   const price = Math.max(0, Number($("#s-price").value) || 0);
+  const durationMin = Math.max(0, Number($("#s-dur").value) || 0);
   const emoji = (document.querySelector("#s-emoji .emojipick.on") || {}).dataset ? document.querySelector("#s-emoji .emojipick.on").dataset.emoji : "🛒";
   const active = $("#s-active").classList.contains("on");
   try {
-    await api("shop_save", { id: SHOPSHEET.id || null, name, price, emoji, active });
+    await api("shop_save", { id: SHOPSHEET.id || null, name, price, emoji, active, durationMin });
     SHOPSHEET = null; toast("저장했어요"); await loadState();
   } catch (e) { toast(e.message); }
 }
@@ -1056,6 +1164,8 @@ document.addEventListener("click", e => {
     case "buy": doBuy(d.id, d.n, Number(d.p)); break;
     case "deposit": doDeposit(d.k); break;
     case "depundo": doDepUndo(d.id); break;
+    case "depositall": doBothChildren("deposit"); break;
+    case "payoutall": doBothChildren("payout"); break;
     case "spendundo": doSpendUndo(d.id); break;
     case "shopnew": SHOPSHEET = {}; render(); break;
     case "shopedit": {
@@ -1094,6 +1204,7 @@ document.addEventListener("visibilitychange", () => {
 });
 setInterval(() => { if (document.visibilityState === "visible") loadState(true); }, 25000);
 setInterval(checkVersion, 5 * 60 * 1000);
+setInterval(tickTimers, 1000);
 
 /* ---------- 서비스워커 ---------- */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
