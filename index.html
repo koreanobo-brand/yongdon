@@ -258,7 +258,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.9";
+const APPVER = "1.1.0";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -1130,7 +1130,7 @@ async function doCouponUse(id, name, timed) {
   if (!confirm((box ? "🎁 랜덤박스를 열까요?" : "'" + name + "' 쿠폰을 지금 쓸까요?") + (Number(timed) && !box ? "\n지금부터 시간이 시작돼요." : ""))) return;
   try {
     const j = await api("coupon_use", { couponId: id });
-    if (j.won) toast("🎁 " + j.won + " 당첨!" + (j.endsAt ? " 시간 시작 ⏳" : ""));
+    if (j.won) toast("🎁 " + j.won + " 당첨! 쿠폰함에 담겼어요 — 원할 때 쓰세요");
     else toast(Number(timed) ? "시작! 시간이 재기 시작해요 ⏳" : "쿠폰을 썼어요 🎟️");
     await loadState();
   } catch (e) { toast(e.message); }
