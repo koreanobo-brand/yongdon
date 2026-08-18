@@ -170,6 +170,17 @@
   .spendmini{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;}
   .spendmini span{font-size:11px; color:var(--mut); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:3px 8px;}
   .spendmini b{color:var(--red); font-weight:700;}
+  /* 쿠폰 */
+  .coupons{display:flex; flex-direction:column; gap:8px;}
+  .coupon{display:flex; align-items:center; gap:10px; background:var(--amberbg); border:1px dashed var(--amber); border-radius:14px; padding:11px 13px;}
+  .coupon .cemoji{font-size:22px; flex:none;}
+  .coupon .cinfo{flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;}
+  .coupon .cinfo b{font-size:13.5px;}
+  .coupon .cinfo small{color:var(--amber); font-weight:700;}
+  .coupon .btn{flex:none;}
+  .selin{width:100%; font:inherit; padding:10px 11px; border:1.5px solid var(--line); border-radius:12px; background:var(--bg); color:var(--ink);}
+  .cpnkid{display:flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px; border:1.5px solid var(--line); font-weight:700; font-size:12.5px; color:var(--mut); background:var(--card);}
+  .cpnkid.on{border-color:var(--green); color:var(--green); background:var(--greenbg);}
 
   /* 판정 편집기 */
   .jrow{display:flex; flex-direction:column; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:11px 12px;}
@@ -247,7 +258,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.5";
+const APPVER = "1.0.7";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -604,7 +615,7 @@ function viewToday() {
     else if (r.status === "success") side = '<span class="pill p-done num">성공 +' + fmt(r.delta) + '원</span>';
     else if (r.status === "fail") side = '<span class="pill p-pen num">실패 ' + fmt(r.delta) + '원</span>';
     else side = '<span class="pill p-hold">보류</span>';
-    const badge = m.onceDay ? '<span class="tag-s">돌발</span> ' : '';
+    const badge = (m.onceDay ? '<span class="tag-s">돌발</span> ' : '') + (m.isRandombox ? '<span class="tag-s" style="background:var(--blue)">🎁</span> ' : '');
     html += '<div class="mrow"><div class="mname">' + badge + esc(m.title) + (m.note ? '<small>' + esc(m.note) + '</small>' : '') + '</div><div class="side">' + side + '</div></div>';
   });
   return html;
@@ -654,6 +665,19 @@ function viewShop() {
   let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
     '<div class="m num">사고 싶은 걸 골라봐요</div></div>';
   html += timersBlock();
+  const coupons = (STATE.coupons || []).filter(c => c.memberId === ME.id);
+  if (coupons.length) {
+    html += '<div class="lrow"><b>🎟️ 내 쿠폰</b><span>사용을 누르면 시작</span></div><div class="coupons">';
+    coupons.forEach(c => {
+      const lbl = c.label || "랜덤박스";
+      html += '<div class="coupon"><span class="cemoji">' + esc(c.emoji) + '</span>' +
+        '<div class="cinfo"><b>' + esc(lbl) + (c.isRandombox ? " (열어보기!)" : "") + '</b>' +
+        (c.durationMin ? '<small class="num">' + c.durationMin + '분</small>' : '') +
+        (c.message ? '<small>💬 ' + esc(c.message) + '</small>' : '') + '</div>' +
+        '<button class="btn" data-act="couponuse" data-id="' + c.id + '" data-n="' + esc(lbl) + '" data-t="' + (c.durationMin || 0) + '">' + (c.isRandombox ? "열기" : "사용") + '</button></div>';
+    });
+    html += '</div>';
+  }
   html += '<div class="lrow"><b>🛒 상점</b><span>지갑에서 바로 빠져요</span></div>';
   html += '<div class="shop">';
   if (!items.length) html += '<div class="empty">아직 살 수 있는 게 없어요</div>';
@@ -786,6 +810,31 @@ function viewPayout() {
     }
     html += '</div>';
   });
+  // 쿠폰 보내기 (상점 품목 무료 선물)
+  const sitems = shopItems().filter(i => i.active);
+  html += '<div class="card"><div class="lrow" style="margin:0 0 8px"><b>🎟️ 쿠폰 보내기</b><span>상점 품목 선물(무료)</span></div>';
+  if (!sitems.length) html += '<div class="empty">상점 메뉴를 먼저 만들어주세요</div>';
+  else {
+    html += '<select id="cpn-item" class="selin">' + sitems.map(i =>
+      '<option value="' + i.id + '">' + esc(i.emoji + " " + i.name) + (i.durationMin ? " (" + i.durationMin + "분)" : "") + '</option>').join("") + '</select>';
+    html += '<div class="ckrow" style="margin-top:8px"><button class="ck" id="cpn-box">🎁 랜덤박스로 보내기 (열 때 랜덤 당첨)</button></div>';
+    html += '<input type="text" id="cpn-msg" class="memoin" placeholder="한마디 (예: 방청소 잘했어! 🎉) — 선택">';
+    html += '<div class="kidpick" style="margin-top:8px">' + kids.map(k =>
+      '<button class="cpnkid" data-cpnkid="' + k.id + '"><span class="ava sm" style="background:' + k.color + '; width:22px; height:22px; font-size:10px">' + esc(k.name[0]) + '</span>' + esc(k.name) + '</button>').join("") + '</div>';
+    html += '<button class="btn wide" data-act="couponsend" style="margin-top:10px">🎟️ 보내기</button>';
+  }
+  const unused = (STATE.coupons || []);
+  if (unused.length) {
+    const pmc = memberMap();
+    html += '<div class="paylist">';
+    unused.forEach(c => {
+      const kid = pmc[c.memberId];
+      html += '<div class="dline"><span>' + esc(c.emoji) + ' ' + esc(c.label || "랜덤박스") + ' → ' + (kid ? esc(kid.name) : "") + (c.message ? ' 💬' : "") + '</span>' +
+        '<button class="undo" data-act="coupondel" data-id="' + c.id + '">취소</button></div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
   // 아이가 쓴 내역 (상점 구매·저금) + 되돌리기
   const sp = (STATE.spends || []);
   if (sp.length) {
@@ -814,8 +863,8 @@ function viewMissions() {
   if (!list.length) html += '<div class="empty">미션이 없어요. 첫 미션을 만들어보세요!</div>';
   list.forEach(m => {
     html += '<button class="mm' + (m.active ? "" : " off") + '" data-act="medit" data-id="' + m.id + '">' +
-      '<div class="info"><b>' + esc(m.title) + (m.active ? "" : " (쉬는 중)") + '</b>' +
-      '<small class="num">성공 +' + fmt(m.amount) + ' · 실패 −' + fmt(m.penalty) + (m.note ? ' · ' + esc(m.note) : '') + '</small></div>' +
+      '<div class="info"><b>' + esc(m.title) + (m.isRandombox ? " 🎁" : "") + (m.active ? "" : " (쉬는 중)") + '</b>' +
+      '<small class="num">성공 +' + fmt(m.amount) + ' · 실패 −' + fmt(m.penalty) + (m.isRandombox ? " · 랜덤박스" : "") + (m.note ? ' · ' + esc(m.note) : '') + '</small></div>' +
       '<div class="kids">' + kchip(m) + '</div><span class="chev">›</span></button>';
   });
   // 돌발 미션 (오늘·다가올 것만)
@@ -939,6 +988,7 @@ function viewSheet() {
     kids.map(k => '<button class="ck' + (tgt.includes(k.id) ? " on" : "") + '" data-tid="' + k.id + '">' + esc(k.name) + '</button>').join("") +
     '</div></div>';
   if (!sp) h += '<div class="fld"><label>상태</label><div class="ckrow"><button class="ck' + (s.active !== false ? " on" : "") + '" id="f-active">' + (s.active !== false ? "진행 중" : "쉬는 중 (오늘 목록에서 숨김)") + '</button></div></div>';
+  h += '<div class="fld"><label>보너스</label><div class="ckrow"><button class="ck' + (s.isRandombox ? " on" : "") + '" id="f-box">🎁 랜덤박스 (성공하면 상점 상품 랜덤 당첨)</button></div></div>';
   h += '<button class="btn wide" data-act="msave">저장</button>';
   if (!isNew) h += '<button class="btn wide red" data-act="mdel">삭제</button>';
   h += '<button class="btn wide ghost" data-act="mclose">닫기</button></div>';
@@ -1002,8 +1052,9 @@ async function saveMission() {
   if (!targets.length) return toast("대상을 한 명 이상 골라주세요");
   const active = sp ? true : $("#f-active").classList.contains("on");
   const onceDay = sp ? ($("#f-day").value || todayStr()) : null;
+  const isRandombox = $("#f-box").classList.contains("on");
   try {
-    await api("mission_save", { id: SHEET.id || null, title, note, amount, penalty, targets, active, onceDay });
+    await api("mission_save", { id: SHEET.id || null, title, note, amount, penalty, targets, active, onceDay, isRandombox });
     SHEET = null; toast(sp ? "돌발 미션을 냈어요! ⚡" : "저장했어요"); await loadState();
   } catch (e) { toast(e.message); }
 }
@@ -1040,6 +1091,37 @@ async function doDeposit(kid) {
 async function doDepUndo(id) {
   if (!confirm("이 입금을 되돌릴까요? 지갑에서 다시 빠져요.")) return;
   try { await api("deposit_delete", { id }); toast("되돌렸어요"); await loadState(); }
+  catch (e) { toast(e.message); }
+}
+async function doCouponSend() {
+  const item = $("#cpn-item");
+  const box = $("#cpn-box") && $("#cpn-box").classList.contains("on");
+  if (!box && (!item || !item.value)) return toast("보낼 품목을 골라주세요");
+  const kids = [...document.querySelectorAll(".cpnkid.on")].map(b => b.dataset.cpnkid);
+  if (!kids.length) return toast("받을 아이를 골라주세요");
+  const message = (($("#cpn-msg") || {}).value || "").trim();
+  let ok = 0;
+  for (const kid of kids) {
+    const payload = box ? { memberId: kid, randombox: true, message } : { memberId: kid, itemId: item.value, message };
+    try { await api("coupon_send", payload); ok++; }
+    catch (e) { toast(e.message); }
+  }
+  if (ok) toast(box ? "🎁 랜덤박스를 보냈어요" : "쿠폰을 보냈어요 🎟️");
+  await loadState();
+}
+async function doCouponUse(id, name, timed) {
+  const box = name === "랜덤박스";
+  if (!confirm((box ? "🎁 랜덤박스를 열까요?" : "'" + name + "' 쿠폰을 지금 쓸까요?") + (Number(timed) && !box ? "\n지금부터 시간이 시작돼요." : ""))) return;
+  try {
+    const j = await api("coupon_use", { couponId: id });
+    if (j.won) toast("🎁 " + j.won + " 당첨!" + (j.endsAt ? " 시간 시작 ⏳" : ""));
+    else toast(Number(timed) ? "시작! 시간이 재기 시작해요 ⏳" : "쿠폰을 썼어요 🎟️");
+    await loadState();
+  } catch (e) { toast(e.message); }
+}
+async function doCouponDel(id) {
+  if (!confirm("이 쿠폰을 취소할까요?")) return;
+  try { await api("coupon_delete", { id }); toast("취소했어요"); await loadState(); }
   catch (e) { toast(e.message); }
 }
 async function doBothChildren(action) {
@@ -1141,6 +1223,8 @@ document.addEventListener("click", e => {
     [...document.querySelectorAll("#s-emoji .emojipick")].forEach(b => b.classList.remove("on"));
     emo.classList.add("on"); return;
   }
+  const cpk = e.target.closest("[data-cpnkid]");
+  if (cpk) { cpk.classList.toggle("on"); return; }
   const act = e.target.closest("[data-act]");
   if (!act) return;
   const d = act.dataset;
@@ -1180,6 +1264,9 @@ document.addEventListener("click", e => {
     case "depundo": doDepUndo(d.id); break;
     case "depositall": doBothChildren("deposit"); break;
     case "payoutall": doBothChildren("payout"); break;
+    case "couponsend": doCouponSend(); break;
+    case "couponuse": doCouponUse(d.id, d.n, d.t); break;
+    case "coupondel": doCouponDel(d.id); break;
     case "spendundo": doSpendUndo(d.id); break;
     case "shopnew": SHOPSHEET = {}; render(); break;
     case "shopedit": {
@@ -1212,6 +1299,7 @@ document.addEventListener("click", e => {
     e.target.classList.toggle("on");
     e.target.textContent = e.target.classList.contains("on") ? "판매 중" : "숨김";
   }
+  if (e.target.id === "f-box" || e.target.id === "cpn-box") e.target.classList.toggle("on");
 });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") { loadState(true); checkVersion(); }
