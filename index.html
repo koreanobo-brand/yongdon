@@ -258,7 +258,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.8";
+const APPVER = "1.0.9";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -335,11 +335,22 @@ async function api(action, payload) {
   return j;
 }
 
+/* ---------- 저장소 유지(로그인 안 풀리게) ---------- */
+async function ensurePersist() {
+  // 브라우저가 오래 미사용 시 저장소(토큰)를 비우지 않도록 요청
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      if (!(await navigator.storage.persisted())) await navigator.storage.persist();
+    }
+  } catch (e) { /* 지원 안 하면 무시 */ }
+}
+
 /* ---------- 시작 ---------- */
 async function boot() {
   CAL_MONTH = monthOf(todayStr());
   SEL_DAY = todayStr();
   JDAY = todayStr();
+  ensurePersist();
   if (!TOKEN) return showLogin();
   try {
     const j = await api("boot");
@@ -349,7 +360,11 @@ async function boot() {
     await loadState();
     ensurePush(false);
   } catch (e) {
-    if (TOKEN) { toast(e.message); }
+    // 일시적 서버/네트워크 오류(예: 순간 권한 리셋)면 흰 화면 대신 자동 재접속
+    if (TOKEN) {
+      APP.innerHTML = '<div class="login"><h1>🪙 용돈미션</h1><p class="sub">잠깐만요, 연결 중이에요…</p></div>';
+      setTimeout(boot, 4000);
+    }
   }
 }
 async function loadState(silent) {
@@ -402,6 +417,7 @@ async function pressKey(v) {
     try {
       const j = await api("login", { memberId: LOGIN_SEL, pin: PIN });
       TOKEN = j.token; localStorage.setItem("allw_token", TOKEN);
+      ensurePersist();
       ME = j.member; VAPID = j.vapidKey;
       PIN = ""; LOGIN_SEL = null;
       TAB = ME.role === "parent" ? "approve" : "today";
@@ -1302,7 +1318,9 @@ document.addEventListener("click", e => {
   if (e.target.id === "f-box" || e.target.id === "cpn-box") e.target.classList.toggle("on");
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") { loadState(true); checkVersion(); }
+  if (document.visibilityState !== "visible") return;
+  if (TOKEN && !ME) boot();        // 이전에 연결 실패했으면 재초기화
+  else { loadState(true); checkVersion(); }
 });
 setInterval(() => { if (document.visibilityState === "visible") loadState(true); }, 25000);
 setInterval(checkVersion, 5 * 60 * 1000);
