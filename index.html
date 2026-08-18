@@ -258,7 +258,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.7";
+const APPVER = "1.0.8";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -999,7 +999,7 @@ function viewSheet() {
 function viewShopSheet() {
   const s = SHOPSHEET;
   const isNew = !s.id;
-  const emojis = ["🛒", "💻", "📺", "🎮", "🍫", "🍦", "🧸", "🛝", "🚲", "📚", "🎨", "🎬", "🍿", "💤", "⭐"];
+  const emojis = ["🛒", "📱", "💻", "📺", "🎮", "🕹️", "🍫", "🍦", "🍭", "🧸", "🛝", "🚲", "📚", "🎨", "🎬", "🍿", "🎡", "🍔", "💤", "⭐"];
   return '<div class="sheet-bg" data-act="shopclose"></div><div class="sheet">' +
     '<h3>' + (isNew ? "🛒 새 상점 메뉴" : "메뉴 수정") + '</h3>' +
     '<div class="hint">아이가 지갑으로 살 수 있는 것들이에요 (컴퓨터 시간, 군것질 등).</div>' +
