@@ -1,5 +1,5 @@
 /* 용돈미션 서비스워커 — 설치형(PWA) + 푸시 알림 */
-const VER = "1.0.4";
+const VER = "1.0.5";
 
 self.addEventListener("install", e => self.skipWaiting());
 self.addEventListener("activate", e => {

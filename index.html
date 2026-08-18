@@ -167,6 +167,9 @@
   .rate em{font-style:normal; width:110px; flex:none; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .rate .meter{flex:1;}
   .rate b{width:38px; text-align:right; font-size:11.5px;}
+  .spendmini{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;}
+  .spendmini span{font-size:11px; color:var(--mut); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:3px 8px;}
+  .spendmini b{color:var(--red); font-weight:700;}
 
   /* 판정 편집기 */
   .jrow{display:flex; flex-direction:column; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:11px 12px;}
@@ -244,7 +247,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.0.4";
+const APPVER = "1.0.5";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -850,10 +853,21 @@ function viewStatus() {
     const pct = max > 0 ? Math.round(Math.max(0, total) / max * 100) : 0;
     const gb = goodBadDays(k.id);
     const pen = allRecords().filter(r => r.memberId === k.id && monthOf(r.day) === CAL_MONTH && r.delta < 0).reduce((s, r) => s + r.delta, 0);
+    const kspends = (STATE.spends || []).filter(s => s.memberId === k.id && monthOf(s.day) === CAL_MONTH);
+    const spentM = kspends.reduce((a, s) => a + s.amount, 0);
     html += '<div class="card"><div class="kh"><span class="ava sm" style="background:' + k.color + '">' + esc(k.name[0]) + '</span><b>' + esc(k.name) + '</b>' +
       '<div class="sum"><b class="num">지갑 ' + won(balanceOf(k.id)) + '</b><small class="num">' + m + '월 +' + fmt(total) + ' · ' + pct + '%</small></div></div>' +
       '<div class="meter"><i style="width:' + Math.min(100, pct) + '%; background:' + k.color + '"></i></div>' +
-      '<div class="mut num" style="font-size:11px; margin-top:5px">잘한 날 ' + gb.good + ' · 아쉬운 날 ' + gb.bad + ' · 페널티 ' + won(pen) + (paidThisMonth(k.id) ? ' · 지급 ' + won(paidThisMonth(k.id)) : '') + '</div></div>';
+      '<div class="mut num" style="font-size:11px; margin-top:5px">잘한 날 ' + gb.good + ' · 아쉬운 날 ' + gb.bad + ' · 페널티 ' + won(pen) +
+      (spentM ? ' · 소비 ' + won(spentM) : '') + (paidThisMonth(k.id) ? ' · 지급 ' + won(paidThisMonth(k.id)) : '') + '</div>';
+    // 이달 소비 내역(품목별 묶음)
+    if (kspends.length) {
+      const by = {};
+      kspends.forEach(s => { const key = s.kind === "save" ? "🐷 맡김" : (s.label || "구매"); (by[key] = by[key] || { n: 0, sum: 0 }); by[key].n++; by[key].sum += s.amount; });
+      html += '<div class="spendmini">' + Object.entries(by).sort((a, b) => b[1].sum - a[1].sum).map(([lab, v]) =>
+        '<span>' + esc(lab) + (v.n > 1 ? ' ×' + v.n : '') + ' <b class="num">' + won(v.sum) + '</b></span>').join("") + '</div>';
+    }
+    html += '</div>';
   });
   /* 미션별 성공률 */
   const mp = missionMap();
