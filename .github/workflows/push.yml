@@ -1,0 +1,22 @@
+name: push-sender
+# PC가 꺼져 있어도 알림을 보내는 클라우드 발송기 (5분마다)
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+concurrency:
+  group: push-sender
+  cancel-in-progress: false
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pywebpush
+      - name: send due notifications
+        env:
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
+        run: python .github/scripts/send_push.py
