@@ -170,6 +170,11 @@
   .spendmini{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;}
   .spendmini span{font-size:11px; color:var(--mut); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:3px 8px;}
   .spendmini b{color:var(--red); font-weight:700;}
+  /* 별 */
+  .stars{letter-spacing:-1px;}
+  .card.star .m{font-size:11.5px; color:var(--mut); margin-top:6px;}
+  #f-stars .ck{letter-spacing:-1px;}
+  #goal-in{flex:1; min-width:0;}
   /* 쿠폰 */
   .coupons{display:flex; flex-direction:column; gap:8px;}
   .coupon{display:flex; align-items:center; gap:10px; background:var(--amberbg); border:1px dashed var(--amber); border-radius:14px; padding:11px 13px;}
@@ -258,7 +263,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.1.0";
+const APPVER = "1.2.0";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -478,6 +483,17 @@ function savingsOf(memberId) {
 }
 function shopItems() { return STATE.shopItems || []; }
 
+/* ---------- 별(⭐) 일일퀘스트 ---------- */
+function starsOf(m) { return Math.min(3, Math.max(1, (m && m.stars) || 1)); }
+function starTag(m) { return "⭐".repeat(starsOf(m)); }
+function dailyGoal() { return Math.max(1, STATE.dailyStarGoal || 6); }
+function starsToday(memberId, day) {
+  const mp = missionMap(), d = day || STATE.today;
+  return allRecords()
+    .filter(r => r.memberId === memberId && r.day === d && r.status === "success")
+    .reduce((s, r) => s + starsOf(mp[r.missionId]), 0);
+}
+
 /* ---------- 시간제 타이머 ---------- */
 const TIMER_ALERTED = new Set(JSON.parse(localStorage.getItem("allw_talert") || "[]"));
 function persistAlerted() {
@@ -621,6 +637,12 @@ function viewToday() {
   let html = '<div class="card bal"><div class="t">지금 내 지갑</div><div class="v num">' + won(bal) + '</div>' +
     '<div class="m num">이번 달 +' + fmt(earned) + '원 모았어요' + (paidThisMonth(ME.id) ? ' · 받은 용돈 ' + won(paidThisMonth(ME.id)) : '') + '</div></div>';
   html += timersBlock();
+  // 오늘의 별 진행도 (목표 채우면 랜덤박스)
+  const st = starsToday(ME.id), goal = dailyGoal();
+  html += '<div class="card star"><div class="lrow" style="margin:0 0 6px"><b>⭐ 오늘의 별</b>' +
+    '<span class="num">' + st + ' / ' + goal + '</span></div>' +
+    '<div class="meter"><i style="width:' + Math.min(100, Math.round(st / goal * 100)) + '%; background:var(--amber)"></i></div>' +
+    '<div class="m num">' + (st >= goal ? "🎁 다 모았어요! 랜덤박스 받았어요" : "별 " + (goal - st) + "개 더 모으면 🎁 랜덤박스!") + '</div></div>';
   html += '<div class="lrow"><b>오늘의 미션</b><span class="num">' + missions.length + '개 중 ' + doneCnt + '개 성공</span></div>';
   if (!missions.length) html += '<div class="empty">아직 내 미션이 없어요. 부모님께 말해보세요!</div>';
   missions.forEach(m => {
@@ -632,7 +654,9 @@ function viewToday() {
     else if (r.status === "fail") side = '<span class="pill p-pen num">실패 ' + fmt(r.delta) + '원</span>';
     else side = '<span class="pill p-hold">보류</span>';
     const badge = (m.onceDay ? '<span class="tag-s">돌발</span> ' : '') + (m.isRandombox ? '<span class="tag-s" style="background:var(--blue)">🎁</span> ' : '');
-    html += '<div class="mrow"><div class="mname">' + badge + esc(m.title) + (m.note ? '<small>' + esc(m.note) + '</small>' : '') + '</div><div class="side">' + side + '</div></div>';
+    html += '<div class="mrow"><div class="mname">' + badge + esc(m.title) +
+      '<small><span class="stars">' + starTag(m) + '</span>' + (m.note ? ' · ' + esc(m.note) : '') + '</small></div>' +
+      '<div class="side">' + side + '</div></div>';
   });
   return html;
 }
@@ -876,11 +900,19 @@ function viewMissions() {
     '<span class="kchip" style="background:' + (m.targets.includes(k.id) ? k.color : "var(--line)") + ';' + (m.targets.includes(k.id) ? "" : "color:var(--mut)") + '">' + esc(k.name[0]) + '</span>').join("");
   const list = (STATE.missions || []).filter(m => !m.onceDay).sort((a, b) => (b.active - a.active) || (a.sort - b.sort));
   let html = '<div class="lrow"><b style="font-size:16px">미션 관리</b><span><button class="linkbtn" data-act="snew">⚡ 돌발</button> <button class="linkbtn" data-act="mnew">+ 새 미션</button></span></div>';
+  // 일일퀘스트 목표 별 수 (관리자 설정)
+  html += '<div class="card"><div class="lrow" style="margin:0 0 8px"><b>⭐ 일일퀘스트 목표</b>' +
+    '<span>하루에 이만큼 모으면 🎁</span></div>' +
+    '<div class="payrow"><input type="number" id="goal-in" inputmode="numeric" min="1" value="' + dailyGoal() + '">' +
+    '<button class="btn sm2" data-act="goalsave">저장</button></div>' +
+    '<div class="mut" style="font-size:11.5px; margin-top:6px">오늘 ' +
+    (STATE.members || []).filter(m => m.role === "child")
+      .map(k => esc(k.name) + " " + starsToday(k.id) + "⭐").join(" · ") + '</div></div>';
   if (!list.length) html += '<div class="empty">미션이 없어요. 첫 미션을 만들어보세요!</div>';
   list.forEach(m => {
     html += '<button class="mm' + (m.active ? "" : " off") + '" data-act="medit" data-id="' + m.id + '">' +
       '<div class="info"><b>' + esc(m.title) + (m.isRandombox ? " 🎁" : "") + (m.active ? "" : " (쉬는 중)") + '</b>' +
-      '<small class="num">성공 +' + fmt(m.amount) + ' · 실패 −' + fmt(m.penalty) + (m.isRandombox ? " · 랜덤박스" : "") + (m.note ? ' · ' + esc(m.note) : '') + '</small></div>' +
+      '<small class="num"><span class="stars">' + starTag(m) + '</span> · 성공 +' + fmt(m.amount) + ' · 실패 −' + fmt(m.penalty) + (m.isRandombox ? " · 랜덤박스" : "") + (m.note ? ' · ' + esc(m.note) : '') + '</small></div>' +
       '<div class="kids">' + kchip(m) + '</div><span class="chev">›</span></button>';
   });
   // 돌발 미션 (오늘·다가올 것만)
@@ -923,7 +955,7 @@ function viewStatus() {
     html += '<div class="card"><div class="kh"><span class="ava sm" style="background:' + k.color + '">' + esc(k.name[0]) + '</span><b>' + esc(k.name) + '</b>' +
       '<div class="sum"><b class="num">지갑 ' + won(balanceOf(k.id)) + '</b><small class="num">' + m + '월 +' + fmt(total) + ' · ' + pct + '%</small></div></div>' +
       '<div class="meter"><i style="width:' + Math.min(100, pct) + '%; background:' + k.color + '"></i></div>' +
-      '<div class="mut num" style="font-size:11px; margin-top:5px">잘한 날 ' + gb.good + ' · 아쉬운 날 ' + gb.bad + ' · 페널티 ' + won(pen) +
+      '<div class="mut num" style="font-size:11px; margin-top:5px">오늘 ' + starsToday(k.id) + '⭐/' + dailyGoal() + ' · 잘한 날 ' + gb.good + ' · 아쉬운 날 ' + gb.bad + ' · 페널티 ' + won(pen) +
       (spentM ? ' · 소비 ' + won(spentM) : '') + (paidThisMonth(k.id) ? ' · 지급 ' + won(paidThisMonth(k.id)) : '') + '</div>';
     // 이달 소비 내역(품목별 묶음)
     if (kspends.length) {
@@ -1004,6 +1036,9 @@ function viewSheet() {
     kids.map(k => '<button class="ck' + (tgt.includes(k.id) ? " on" : "") + '" data-tid="' + k.id + '">' + esc(k.name) + '</button>').join("") +
     '</div></div>';
   if (!sp) h += '<div class="fld"><label>상태</label><div class="ckrow"><button class="ck' + (s.active !== false ? " on" : "") + '" id="f-active">' + (s.active !== false ? "진행 중" : "쉬는 중 (오늘 목록에서 숨김)") + '</button></div></div>';
+  h += '<div class="fld"><label>별 (일일퀘스트용 · 기본 1개 + 최대 2개 추가)</label><div class="ckrow" id="f-stars">' +
+    [1, 2, 3].map(n => '<button class="ck' + (starsOf(s) === n ? " on" : "") + '" data-star="' + n + '">' + "⭐".repeat(n) + '</button>').join("") +
+    '</div></div>';
   h += '<div class="fld"><label>보너스</label><div class="ckrow"><button class="ck' + (s.isRandombox ? " on" : "") + '" id="f-box">🎁 랜덤박스 (성공하면 상점 상품 랜덤 당첨)</button></div></div>';
   h += '<button class="btn wide" data-act="msave">저장</button>';
   if (!isNew) h += '<button class="btn wide red" data-act="mdel">삭제</button>';
@@ -1069,8 +1104,10 @@ async function saveMission() {
   const active = sp ? true : $("#f-active").classList.contains("on");
   const onceDay = sp ? ($("#f-day").value || todayStr()) : null;
   const isRandombox = $("#f-box").classList.contains("on");
+  const starsSel = document.querySelector("#f-stars .ck.on");
+  const stars = starsSel ? Number(starsSel.dataset.star) : 1;
   try {
-    await api("mission_save", { id: SHEET.id || null, title, note, amount, penalty, targets, active, onceDay, isRandombox });
+    await api("mission_save", { id: SHEET.id || null, title, note, amount, penalty, targets, active, onceDay, isRandombox, stars });
     SHEET = null; toast(sp ? "돌발 미션을 냈어요! ⚡" : "저장했어요"); await loadState();
   } catch (e) { toast(e.message); }
 }
@@ -1108,6 +1145,15 @@ async function doDepUndo(id) {
   if (!confirm("이 입금을 되돌릴까요? 지갑에서 다시 빠져요.")) return;
   try { await api("deposit_delete", { id }); toast("되돌렸어요"); await loadState(); }
   catch (e) { toast(e.message); }
+}
+async function doGoalSave() {
+  const v = Math.max(1, Math.floor(Number(($("#goal-in") || {}).value) || 0));
+  if (!v) return toast("목표 별 수를 입력해 주세요");
+  try {
+    await api("config_save", { dailyStarGoal: v });
+    toast("일일퀘스트 목표 " + v + "⭐로 바꿨어요");
+    await loadState();
+  } catch (e) { toast(e.message); }
 }
 async function doCouponSend() {
   const item = $("#cpn-item");
@@ -1241,6 +1287,11 @@ document.addEventListener("click", e => {
   }
   const cpk = e.target.closest("[data-cpnkid]");
   if (cpk) { cpk.classList.toggle("on"); return; }
+  const star = e.target.closest("[data-star]");
+  if (star) {
+    [...document.querySelectorAll("#f-stars .ck")].forEach(b => b.classList.remove("on"));
+    star.classList.add("on"); return;
+  }
   const act = e.target.closest("[data-act]");
   if (!act) return;
   const d = act.dataset;
@@ -1280,6 +1331,7 @@ document.addEventListener("click", e => {
     case "depundo": doDepUndo(d.id); break;
     case "depositall": doBothChildren("deposit"); break;
     case "payoutall": doBothChildren("payout"); break;
+    case "goalsave": doGoalSave(); break;
     case "couponsend": doCouponSend(); break;
     case "couponuse": doCouponUse(d.id, d.n, d.t); break;
     case "coupondel": doCouponDel(d.id); break;
