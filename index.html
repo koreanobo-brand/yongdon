@@ -263,7 +263,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.2.0";
+const APPVER = "1.2.1";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -275,6 +275,7 @@ let LOGIN_MEMBERS = null, LOGIN_SEL = null, PIN = "";
 let JKID = null, JDAY = "";
 let SHEET = null; // 미션 편집 대상 {} or {id...}
 let SHOPSHEET = null; // 상점 메뉴 편집 대상
+let PINSHEET = false; // 비밀번호 변경 시트
 let PUSH_DISMISSED = false;
 
 /* ---------- 유틸 ---------- */
@@ -379,7 +380,7 @@ async function loadState(silent) {
     STATE = j;
     if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
     const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
-    if (silent && (SHEET || SHOPSHEET || typing)) return;   // 입력 중·시트 열림이면 화면 유지
+    if (silent && (SHEET || SHOPSHEET || PINSHEET || typing)) return;   // 입력 중·시트 열림이면 화면 유지
     render();
   } catch (e) { if (!silent) toast(e.message); }
 }
@@ -595,6 +596,7 @@ function render() {
   html += '<div class="head"><span class="ava" style="background:' + ME.color + '">' + esc(ME.name[0]) + '</span>' +
     '<div class="who"><b>' + (isParent ? esc(ME.name) + ' (관리자)' : '안녕, ' + esc(ME.name) + '!') + '</b>' +
     '<small>' + dayLabel(STATE.today) + '</small></div>' +
+    '<button class="out" data-act="pinopen">🔑 비번</button>' +
     '<button class="out" data-act="logout">나가기</button></div>';
   html += pushBanner();
   if (isParent) {
@@ -615,6 +617,7 @@ function render() {
   APP.innerHTML = html;
   if (SHEET) APP.insertAdjacentHTML("beforeend", viewSheet());
   if (SHOPSHEET) APP.insertAdjacentHTML("beforeend", viewShopSheet());
+  if (PINSHEET) APP.insertAdjacentHTML("beforeend", viewPinSheet());
   const jd = $("#jdate");
   if (jd) jd.onchange = e => { JDAY = e.target.value || todayStr(); onJudgeDayChange(); };
 }
@@ -1046,6 +1049,18 @@ function viewSheet() {
   return h;
 }
 
+/* ----- 비밀번호 변경 시트 (본인 것) ----- */
+function viewPinSheet() {
+  return '<div class="sheet-bg" data-act="pinclose"></div><div class="sheet">' +
+    '<h3>🔑 내 비밀번호 바꾸기</h3>' +
+    '<div class="hint">' + esc(ME.name) + '님의 비밀번호예요. 숫자 4자리.</div>' +
+    '<div class="fld"><label>지금 비밀번호</label><input type="password" id="p-cur" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"></div>' +
+    '<div class="fld"><label>새 비밀번호</label><input type="password" id="p-new" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"></div>' +
+    '<div class="fld"><label>새 비밀번호 확인</label><input type="password" id="p-new2" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"></div>' +
+    '<button class="btn wide" data-act="pinsave">바꾸기</button>' +
+    '<button class="btn wide ghost" data-act="pinclose">닫기</button></div>';
+}
+
 /* ----- 상점 메뉴 편집 시트 ----- */
 function viewShopSheet() {
   const s = SHOPSHEET;
@@ -1145,6 +1160,19 @@ async function doDepUndo(id) {
   if (!confirm("이 입금을 되돌릴까요? 지갑에서 다시 빠져요.")) return;
   try { await api("deposit_delete", { id }); toast("되돌렸어요"); await loadState(); }
   catch (e) { toast(e.message); }
+}
+async function doChangePin() {
+  const cur = ($("#p-cur") || {}).value || "";
+  const nw = ($("#p-new") || {}).value || "";
+  const nw2 = ($("#p-new2") || {}).value || "";
+  if (!/^\d{4}$/.test(nw)) return toast("새 비밀번호는 숫자 4자리예요");
+  if (nw !== nw2) return toast("새 비밀번호가 서로 달라요");
+  try {
+    await api("change_pin", { currentPin: cur, newPin: nw });
+    PINSHEET = false;
+    toast("비밀번호를 바꿨어요 🔑");
+    render();
+  } catch (e) { toast(e.message); }
 }
 async function doGoalSave() {
   const v = Math.max(1, Math.floor(Number(($("#goal-in") || {}).value) || 0));
@@ -1331,6 +1359,9 @@ document.addEventListener("click", e => {
     case "depundo": doDepUndo(d.id); break;
     case "depositall": doBothChildren("deposit"); break;
     case "payoutall": doBothChildren("payout"); break;
+    case "pinopen": PINSHEET = true; render(); break;
+    case "pinclose": PINSHEET = false; render(); break;
+    case "pinsave": doChangePin(); break;
     case "goalsave": doGoalSave(); break;
     case "couponsend": doCouponSend(); break;
     case "couponuse": doCouponUse(d.id, d.n, d.t); break;
