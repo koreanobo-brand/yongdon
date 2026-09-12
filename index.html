@@ -121,6 +121,11 @@
   .mm .kids{display:flex; gap:4px; flex:none;}
   .kchip{width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font-size:11px; font-weight:800; color:#fff;}
   .mm .chev{color:var(--mut); font-weight:700; flex:none;}
+  #mlist{display:flex; flex-direction:column; gap:10px;}
+  .drag{flex:none; font-size:17px; line-height:1; color:var(--mut); padding:8px 6px;
+        margin:-8px 0 -8px -4px; touch-action:none; user-select:none; cursor:grab;}
+  .mm.dragging{border-color:var(--green); background:var(--greenbg); opacity:.92;
+        box-shadow:0 10px 22px -10px rgba(10,20,15,.5);}
   .linkbtn{color:var(--green); font-weight:800; font-size:13px; padding:2px 4px;}
   .tag-s{display:inline-block; font-size:9.5px; font-weight:800; color:#fff; background:var(--amber); padding:1px 6px; border-radius:6px; vertical-align:1px;}
   .hint{font-size:12px; color:var(--mut); background:var(--amberbg); border-radius:10px; padding:8px 10px;}
@@ -263,7 +268,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.2.1";
+const APPVER = "1.3.0";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -380,7 +385,7 @@ async function loadState(silent) {
     STATE = j;
     if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
     const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
-    if (silent && (SHEET || SHOPSHEET || PINSHEET || typing)) return;   // 입력 중·시트 열림이면 화면 유지
+    if (silent && (SHEET || SHOPSHEET || PINSHEET || DRAG || typing)) return;   // 입력 중·시트 열림이면 화면 유지
     render();
   } catch (e) { if (!silent) toast(e.message); }
 }
@@ -901,7 +906,7 @@ function viewMissions() {
   const kids = (STATE.members || []).filter(m => m.role === "child");
   const kchip = m => kids.map(k =>
     '<span class="kchip" style="background:' + (m.targets.includes(k.id) ? k.color : "var(--line)") + ';' + (m.targets.includes(k.id) ? "" : "color:var(--mut)") + '">' + esc(k.name[0]) + '</span>').join("");
-  const list = (STATE.missions || []).filter(m => !m.onceDay).sort((a, b) => (b.active - a.active) || (a.sort - b.sort));
+  const list = (STATE.missions || []).filter(m => !m.onceDay).sort((a, b) => a.sort - b.sort);
   let html = '<div class="lrow"><b style="font-size:16px">미션 관리</b><span><button class="linkbtn" data-act="snew">⚡ 돌발</button> <button class="linkbtn" data-act="mnew">+ 새 미션</button></span></div>';
   // 일일퀘스트 목표 별 수 (관리자 설정)
   html += '<div class="card"><div class="lrow" style="margin:0 0 8px"><b>⭐ 일일퀘스트 목표</b>' +
@@ -912,12 +917,16 @@ function viewMissions() {
     (STATE.members || []).filter(m => m.role === "child")
       .map(k => esc(k.name) + " " + starsToday(k.id) + "⭐").join(" · ") + '</div></div>';
   if (!list.length) html += '<div class="empty">미션이 없어요. 첫 미션을 만들어보세요!</div>';
+  else html += '<div class="lrow"><b>순서</b><span>☰ 를 꾹 눌러 끌면 순서가 바뀌어요</span></div>';
+  html += '<div id="mlist">';
   list.forEach(m => {
-    html += '<button class="mm' + (m.active ? "" : " off") + '" data-act="medit" data-id="' + m.id + '">' +
+    html += '<div class="mm' + (m.active ? "" : " off") + '" data-mid="' + m.id + '" data-act="medit" data-id="' + m.id + '">' +
+      '<span class="drag">☰</span>' +
       '<div class="info"><b>' + esc(m.title) + (m.isRandombox ? " 🎁" : "") + (m.active ? "" : " (쉬는 중)") + '</b>' +
       '<small class="num"><span class="stars">' + starTag(m) + '</span> · 성공 +' + fmt(m.amount) + ' · 실패 −' + fmt(m.penalty) + (m.isRandombox ? " · 랜덤박스" : "") + (m.note ? ' · ' + esc(m.note) : '') + '</small></div>' +
-      '<div class="kids">' + kchip(m) + '</div><span class="chev">›</span></button>';
+      '<div class="kids">' + kchip(m) + '</div><span class="chev">›</span></div>';
   });
+  html += '</div>';
   // 돌발 미션 (오늘·다가올 것만)
   const upcoming = surpriseMissions().filter(m => m.onceDay >= STATE.today);
   if (upcoming.length) {
@@ -1305,7 +1314,61 @@ async function checkVersion() {
 }
 
 /* ---------- 이벤트 ---------- */
+/* ---------- 미션 순서 드래그(터치 지원) ---------- */
+let DRAG = null;        // {el, list, moved}
+let DRAG_JUST = false;  // 드래그 직후 편집창 열림 방지
+let DRAG_SCROLL = 0, DRAG_TIMER = null;
+
+function rowsIn(list) { return [...list.querySelectorAll(".mm[data-mid]")]; }
+
+document.addEventListener("pointerdown", e => {
+  const h = e.target.closest(".drag");
+  if (!h) return;
+  const el = h.closest(".mm[data-mid]");
+  const list = el && el.closest("#mlist");
+  if (!el || !list) return;
+  e.preventDefault();
+  DRAG = { el, list, moved: false };
+  el.classList.add("dragging");
+  try { h.setPointerCapture(e.pointerId); } catch (err) { /* 무시 */ }
+  DRAG_TIMER = setInterval(() => { if (DRAG_SCROLL) window.scrollBy(0, DRAG_SCROLL); }, 16);
+});
+
+document.addEventListener("pointermove", e => {
+  if (!DRAG) return;
+  e.preventDefault();
+  const y = e.clientY, vh = window.innerHeight;
+  DRAG_SCROLL = y < 90 ? -10 : (y > vh - 90 ? 10 : 0);   // 가장자리에서 자동 스크롤
+  const under = document.elementFromPoint(e.clientX, y);
+  const row = under && under.closest(".mm[data-mid]");
+  if (!row || row === DRAG.el || !DRAG.list.contains(row)) return;
+  const r = row.getBoundingClientRect();
+  DRAG.list.insertBefore(DRAG.el, (y < r.top + r.height / 2) ? row : row.nextSibling);
+  DRAG.moved = true;
+});
+
+function endDrag() {
+  if (!DRAG) return;
+  const moved = DRAG.moved, list = DRAG.list;
+  DRAG.el.classList.remove("dragging");
+  DRAG = null; DRAG_SCROLL = 0;
+  clearInterval(DRAG_TIMER); DRAG_TIMER = null;
+  if (!moved) return;
+  DRAG_JUST = true;
+  setTimeout(() => { DRAG_JUST = false; }, 400);
+  doReorder(rowsIn(list).map(x => x.dataset.mid));
+}
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
+
+async function doReorder(ids) {
+  try { await api("mission_reorder", { ids }); toast("순서를 바꿨어요 ↕"); }
+  catch (e) { toast(e.message); }
+  await loadState();
+}
+
 document.addEventListener("click", e => {
+  if (DRAG_JUST || e.target.closest(".drag")) return;   // 드래그 중/직후엔 편집 안 열기
   const tid = e.target.closest("[data-tid]");
   if (tid) { tid.classList.toggle("on"); return; }
   const emo = e.target.closest("[data-emoji]");
