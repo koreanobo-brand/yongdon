@@ -144,6 +144,11 @@
   .timer .tinfo b{font-size:13px;}
   .timer .tleft{font-size:12.5px; font-weight:800; color:var(--blue);}
   .timer .tleft.soon{color:var(--red); animation:tblink 1s steps(1) infinite;}
+  .timer.paused{background:var(--card); border-color:var(--line); border-style:dashed;}
+  .timer.paused .tleft{color:var(--mut); animation:none;}
+  .timer .tbtn{margin-left:auto; flex:none; border:1.5px solid var(--blue); background:var(--card);
+    color:var(--blue); font:inherit; font-weight:800; font-size:12px; padding:7px 12px; border-radius:999px; cursor:pointer;}
+  .timer.paused .tbtn{border-color:var(--green); color:var(--green);}
   @keyframes tblink{50%{opacity:.35;}}
   @media (prefers-reduced-motion:reduce){ .timer .tleft.soon{animation:none;} }
   .memoin{width:100%; font:inherit; padding:8px 11px; margin-top:7px; border:1.5px solid var(--line); border-radius:11px; background:var(--bg); color:var(--ink);}
@@ -268,7 +273,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.3.0";
+const APPVER = "1.4.0";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -505,9 +510,11 @@ const TIMER_ALERTED = new Set(JSON.parse(localStorage.getItem("allw_talert") || 
 function persistAlerted() {
   localStorage.setItem("allw_talert", JSON.stringify([...TIMER_ALERTED].slice(-40)));
 }
+function isPaused(s) { return s.pausedRemain != null; }
 function activeTimersForMe() {
   const now = Date.now();
-  return (STATE.spends || []).filter(s => s.endsAt && new Date(s.endsAt).getTime() > now
+  return (STATE.spends || []).filter(s =>
+    (isPaused(s) || (s.endsAt && new Date(s.endsAt).getTime() > now))
     && (ME.role === "parent" || s.memberId === ME.id));
 }
 function fmtRemain(ms) {
@@ -519,9 +526,17 @@ function timerCard(s) {
   const pm = memberMap();
   const kid = pm[s.memberId];
   const who = (ME.role === "parent" && kid) ? esc(kid.name) + " · " : "";
-  return '<div class="timer" data-id="' + s.id + '"><span class="ti">⏳</span>' +
-    '<div class="tinfo"><b>' + who + esc(s.label) + '</b>' +
-    '<span class="tleft num" data-ends="' + s.endsAt + '">…</span></div></div>';
+  const pz = isPaused(s);
+  const left = pz
+    ? '<span class="tleft num">⏸ 멈춤 · ' + fmtRemain(s.pausedRemain * 1000) + ' 남음</span>'
+    : '<span class="tleft num" data-ends="' + s.endsAt + '">…</span>';
+  const btn = ME.role === "parent"
+    ? '<button class="tbtn" data-act="' + (pz ? "tresume" : "tpause") + '" data-id="' + s.id +
+      '" data-n="' + esc(s.label) + '">' + (pz ? "▶ 다시" : "⏸ 멈춤") + '</button>'
+    : "";
+  return '<div class="timer' + (pz ? " paused" : "") + '" data-id="' + s.id + '">' +
+    '<span class="ti">' + (pz ? "⏸" : "⏳") + '</span>' +
+    '<div class="tinfo"><b>' + who + esc(s.label) + '</b>' + left + '</div>' + btn + '</div>';
 }
 function timersBlock() {
   const ts = activeTimersForMe();
@@ -556,6 +571,7 @@ function tickTimers() {
     el.classList.toggle("soon", ms > 0 && ms <= 5 * 60000);
   });
   activeTimersForMe().forEach(s => {
+    if (isPaused(s)) return;   // 멈춰 있으면 카운트다운·알람도 멈춤
     const ms = new Date(s.endsAt).getTime() - now;
     if (ms > 0 && ms <= 5 * 60000 && !TIMER_ALERTED.has(s.id)) {
       TIMER_ALERTED.add(s.id); persistAlerted();
@@ -1237,6 +1253,21 @@ async function doBothChildren(action) {
   toast(ok + "명 완료" + (fail.length ? " · 부족: " + fail.join(",") : ""));
   await loadState();
 }
+async function doTimerPause(id, name) {
+  try {
+    const r = await api("timer_pause", { spendId: id });
+    toast("⏸ " + name + " 멈췄어요 (" + Math.floor(r.remain / 60) + "분 남음)");
+    await loadState();
+  } catch (e) { toast(e.message); }
+}
+async function doTimerResume(id, name) {
+  try {
+    await api("timer_resume", { spendId: id });
+    TIMER_ALERTED.delete(id); persistAlerted();   // 남은 시간에 다시 '5분 전' 알림 가능하게
+    toast("▶ " + name + " 다시 시작!");
+    await loadState();
+  } catch (e) { toast(e.message); }
+}
 async function doSpendUndo(id) {
   if (!confirm("이 내역을 되돌릴까요? 지갑으로 다시 들어가요.")) return;
   try { await api("spend_delete", { id }); toast("되돌렸어요"); await loadState(); }
@@ -1430,6 +1461,8 @@ document.addEventListener("click", e => {
     case "couponuse": doCouponUse(d.id, d.n, d.t); break;
     case "coupondel": doCouponDel(d.id); break;
     case "spendundo": doSpendUndo(d.id); break;
+    case "tpause": doTimerPause(d.id, d.n); break;
+    case "tresume": doTimerResume(d.id, d.n); break;
     case "shopnew": SHOPSHEET = {}; render(); break;
     case "shopedit": {
       const it = shopItems().find(x => x.id === d.id);
