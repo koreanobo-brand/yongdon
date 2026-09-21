@@ -273,7 +273,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.4.0";
+const APPVER = "1.5.0";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -343,7 +343,10 @@ async function api(action, payload) {
     body: JSON.stringify({ p_action: action, p_token: TOKEN || null, p_payload: payload || {} })
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error("서버 오류 (" + r.status + ")");
+  if (!r.ok) {
+    if (r.status === 402) throw new Error("서버 사용량 한도예요. 잠시 뒤 다시 열어주세요");
+    throw new Error("서버 오류 (" + r.status + ")");
+  }
   if (!j.ok) {
     if (j.code === 401) { logout(false); throw new Error("다시 로그인해 주세요"); }
     throw new Error(j.error || "오류가 났어요");
@@ -388,6 +391,7 @@ async function loadState(silent) {
   try {
     const j = await api("state", { month: CAL_MONTH });
     STATE = j;
+    if (j.rev != null) LAST_REV = j.rev;
     if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
     const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
     if (silent && (SHEET || SHOPSHEET || PINSHEET || DRAG || typing)) return;   // 입력 중·시트 열림이면 화면 유지
@@ -1337,6 +1341,16 @@ async function doUpdate() {
   } catch (e) { /* 무시 */ }
   location.reload();
 }
+let LAST_REV = null;
+async function pollChanges() {
+  // 25초마다 '바뀐 게 있나'만 물어본다(수십 바이트). 바뀌었을 때만 전체를 받는다.
+  if (!TOKEN || !ME) return;
+  try {
+    const j = await api("poll");
+    if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
+    if (LAST_REV === null || j.rev !== LAST_REV) await loadState(true);
+  } catch (e) { /* 오프라인·한도 등 — 조용히 무시 */ }
+}
 async function checkVersion() {
   try {
     const j = await api("version");
@@ -1499,10 +1513,9 @@ document.addEventListener("click", e => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   if (TOKEN && !ME) boot();        // 이전에 연결 실패했으면 재초기화
-  else { loadState(true); checkVersion(); }
+  else pollChanges();
 });
-setInterval(() => { if (document.visibilityState === "visible") loadState(true); }, 25000);
-setInterval(checkVersion, 5 * 60 * 1000);
+setInterval(() => { if (document.visibilityState === "visible") pollChanges(); }, 25000);
 setInterval(tickTimers, 1000);
 
 /* ---------- 서비스워커 ---------- */
