@@ -221,7 +221,7 @@
   }
   .sheet h3{font-size:16px;}
   .fld label{display:block; font-size:11.5px; font-weight:700; color:var(--mut); margin-bottom:4px;}
-  .fld input[type=text],.fld input[type=number]{
+  .fld input[type=text],.fld input[type=number],.fld input[type=date],.fld textarea{
     width:100%; font:inherit; padding:10px 12px; border:1.5px solid var(--line); border-radius:12px; background:var(--bg); color:var(--ink);
   }
   .fld input:focus{outline:2px solid var(--green); border-color:transparent;}
@@ -229,6 +229,37 @@
   .ckrow{display:flex; gap:8px; flex-wrap:wrap;}
   .ck{display:flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; border:1.5px solid var(--line); font-weight:700; font-size:12.5px; color:var(--mut);}
   .ck.on{border-color:var(--green); color:var(--green); background:var(--greenbg);}
+  .fld textarea{min-height:84px; resize:vertical; line-height:1.45;}
+  .fld textarea:focus{outline:2px solid var(--green); border-color:transparent;}
+
+  /* 관리자 일정(특이사항) */
+  .evalerts{display:flex; flex-direction:column; gap:6px;}
+  .evalert{display:flex; align-items:center; gap:10px; background:var(--redbg); border:1px solid var(--red); border-radius:14px; padding:10px 12px; cursor:pointer;}
+  .evalert .ei{font-size:18px; flex:none;}
+  .evalert .einfo{min-width:0; flex:1; display:flex; flex-direction:column;}
+  .evalert .einfo b{font-size:13px; line-height:1.35;}
+  .evalert .einfo small{font-size:11px; color:var(--mut); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .evalert .ex{flex:none; font-size:12px; font-weight:800; padding:7px 13px; border-radius:999px; background:var(--card); border:1.5px solid var(--red); color:var(--red);}
+  .cal button{position:relative;}
+  .cal .ev{background:var(--amberbg); border-color:transparent; color:var(--amber);}
+  .cal .evdot{position:absolute; bottom:4px; left:50%; width:5px; height:5px; margin-left:-2.5px; border-radius:50%; background:var(--amber);}
+  .evitem{display:flex; gap:10px; align-items:flex-start; padding:9px 2px; border-top:1px solid var(--line); width:100%; text-align:left;}
+  .evitem:first-of-type{border-top:0;}
+  .evitem .ed{flex:none; font-size:11px; font-weight:800; color:var(--amber); background:var(--amberbg); border-radius:8px; padding:3px 7px; min-width:62px; text-align:center;}
+  .evitem .et{flex:1; min-width:0;}
+  .evitem .et b{font-size:13px; display:block; line-height:1.35;}
+  .evitem .et small{font-size:11.5px; color:var(--mut); display:block; white-space:pre-wrap; word-break:break-word; margin-top:1px;}
+  .evitem .bell{flex:none; font-size:13px;}
+  /* 일정 팝업 공지 */
+  .pop-bg{position:fixed; inset:0; background:rgba(15,20,15,.55); z-index:55;}
+  .pop{position:fixed; z-index:56; left:50%; top:50%; transform:translate(-50%,-50%); width:min(420px, calc(100% - 32px)); max-height:80vh; overflow-y:auto;
+    background:var(--card); border-radius:20px; padding:20px 16px 16px; display:flex; flex-direction:column; gap:10px; box-shadow:0 16px 44px rgba(0,0,0,.28);}
+  .pop h3{font-size:17px; text-align:center; margin-bottom:2px;}
+  .pop .pi{background:var(--redbg); border-radius:12px; padding:10px 12px;}
+  .pop .pi .pd{font-size:11px; font-weight:800; color:var(--red);}
+  .pop .pi b{display:block; font-size:14px; line-height:1.35;}
+  .pop .pi small{display:block; font-size:12px; color:var(--mut); white-space:pre-wrap; word-break:break-word; margin-top:2px;}
+  .pop .pnote{font-size:11.5px; color:var(--mut); text-align:center;}
 
   /* 로그인 */
   .login{flex:1; display:flex; flex-direction:column; justify-content:center; gap:20px; padding:24px;}
@@ -261,7 +292,7 @@
   #toast{
     position:fixed; bottom:calc(78px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
     background:#20262B; color:#fff; padding:9px 18px; border-radius:999px; font-size:12.5px; font-weight:600;
-    opacity:0; transition:opacity .25s; pointer-events:none; z-index:50; white-space:nowrap;
+    opacity:0; transition:opacity .25s; pointer-events:none; z-index:70; white-space:nowrap;
   }
   #toast.show{opacity:1;}
   .empty{text-align:center; color:var(--mut); font-size:12.5px; padding:22px 0;}
@@ -273,7 +304,7 @@
 <div id="toast"></div>
 <script>
 "use strict";
-const APPVER = "1.5.0";
+const APPVER = "1.6.0";
 const $ = q => document.querySelector(q);
 const APP = $("#app");
 
@@ -286,6 +317,9 @@ let JKID = null, JDAY = "";
 let SHEET = null; // 미션 편집 대상 {} or {id...}
 let SHOPSHEET = null; // 상점 메뉴 편집 대상
 let PINSHEET = false; // 비밀번호 변경 시트
+let EVSHEET = null;   // 일정(특이사항) 편집 대상 {} or {id...}
+let EVPOP = null;     // 첫 진입 팝업으로 띄운 알림들
+const EVPOP_DONE = new Set();   // 이번 실행에서 이미 팝업한 일정 id(중복 팝업 방지)
 let PUSH_DISMISSED = false;
 
 /* ---------- 유틸 ---------- */
@@ -394,8 +428,9 @@ async function loadState(silent) {
     if (j.rev != null) LAST_REV = j.rev;
     if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
     const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
-    if (silent && (SHEET || SHOPSHEET || PINSHEET || DRAG || typing)) return;   // 입력 중·시트 열림이면 화면 유지
+    if (silent && (SHEET || SHOPSHEET || PINSHEET || EVSHEET || EVPOP || DRAG || typing)) return;   // 입력 중·시트 열림이면 화면 유지
     render();
+    maybeEventPopup();
   } catch (e) { if (!silent) toast(e.message); }
 }
 function logout(clear) {
@@ -615,9 +650,10 @@ function render() {
   if (!ME || !STATE) return;
   const isParent = ME.role === "parent";
   const tabs = isParent
-    ? [["approve", "승인"], ["missions", "미션"], ["payout", "지급"], ["status", "현황"]]
+    ? [["approve", "승인"], ["missions", "미션"], ["payout", "지급"], ["status", "현황"], ["events", "일정"]]
     : [["today", "오늘"], ["cal", "달력"], ["shop", "상점"], ["money", "내 용돈"]];
   let html = '<div class="body">';
+  if (isParent) html += eventAlertsBar();   // 맨 위: 안 닫은 일정 알림
   html += '<div class="head"><span class="ava" style="background:' + ME.color + '">' + esc(ME.name[0]) + '</span>' +
     '<div class="who"><b>' + (isParent ? esc(ME.name) + ' (관리자)' : '안녕, ' + esc(ME.name) + '!') + '</b>' +
     '<small>' + dayLabel(STATE.today) + '</small></div>' +
@@ -628,6 +664,7 @@ function render() {
     if (TAB === "approve") html += viewApprove();
     else if (TAB === "missions") html += viewMissions();
     else if (TAB === "payout") html += viewPayout();
+    else if (TAB === "events") html += viewEvents();
     else html += viewStatus();
   } else {
     if (TAB === "today") html += viewToday();
@@ -643,8 +680,137 @@ function render() {
   if (SHEET) APP.insertAdjacentHTML("beforeend", viewSheet());
   if (SHOPSHEET) APP.insertAdjacentHTML("beforeend", viewShopSheet());
   if (PINSHEET) APP.insertAdjacentHTML("beforeend", viewPinSheet());
+  if (EVSHEET) APP.insertAdjacentHTML("beforeend", viewEvSheet());
+  if (EVPOP) APP.insertAdjacentHTML("beforeend", viewEvPop());
   const jd = $("#jdate");
   if (jd) jd.onchange = e => { JDAY = e.target.value || todayStr(); onJudgeDayChange(); };
+}
+
+/* ----- 관리자: 일정(특이사항) ----- */
+const WD = "일월화수목금토";
+function mdLabel(day) {
+  const [y, m, d] = day.split("-").map(Number);
+  return m + "/" + d + " (" + WD[new Date(y, m - 1, d).getDay()] + ")";
+}
+function evDayLabel(day) {
+  if (day === STATE.today) return "오늘";
+  const diff = Math.round((new Date(STATE.today) - new Date(day)) / 86400000);
+  return mdLabel(day) + (diff > 0 ? " · " + diff + "일 지남" : "");
+}
+function eventAlertsBar() {
+  const al = STATE.alerts || [];
+  if (!al.length) return "";
+  return '<div class="evalerts">' + al.map(a =>
+    '<div class="evalert" data-act="evgo" data-d="' + a.day + '"><span class="ei">📌</span>' +
+    '<div class="einfo"><b>' + esc(evDayLabel(a.day)) + ' · ' + esc(a.title) + '</b>' +
+    (a.memo ? '<small>' + esc(a.memo.split("\n")[0]) + '</small>' : '') + '</div>' +
+    '<button class="ex" data-act="evx" data-id="' + a.id + '">닫기</button></div>').join("") + '</div>';
+}
+function evItem(e, withDate) {
+  return '<button class="evitem" data-act="evedit" data-id="' + e.id + '">' +
+    (withDate ? '<span class="ed num">' + mdLabel(e.day) + '</span>' : '') +
+    '<span class="et"><b>' + esc(e.title) + '</b>' + (e.memo ? '<small>' + esc(e.memo) + '</small>' : '') + '</span>' +
+    '<span class="bell" title="' + (e.alert ? "당일 알림" : "알림 없음") + '">' + (e.alert ? "🔔" : "🔕") + '</span></button>';
+}
+function viewEvents() {
+  const t = STATE.today;
+  const [y, m] = CAL_MONTH.split("-").map(Number);
+  const startWd = new Date(y, m - 1, 1).getDay();
+  const dim = daysInMonth(CAL_MONTH);
+  const evs = STATE.events || [];
+  const evDays = new Set(evs.map(e => e.day));
+  let html = '<div class="cal-head"><button data-act="mon" data-dir="-1">‹</button><b>' + y + '년 ' + m + '월</b><button data-act="mon" data-dir="1">›</button></div>';
+  html += '<div class="card"><div class="wk"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div><div class="cal" style="margin-top:4px">';
+  for (let i = 0; i < startWd; i++) html += '<button class="out"></button>';
+  for (let d = 1; d <= dim; d++) {
+    const day = CAL_MONTH + "-" + pad2(d);
+    let cls = evDays.has(day) ? "ev" : "";
+    if (day === t) cls += " t";
+    if (day === SEL_DAY) cls += " sel";
+    html += '<button class="' + cls + ' num" data-act="selday" data-d="' + day + '">' + d +
+      (evDays.has(day) ? '<i class="evdot"></i>' : '') + '</button>';
+  }
+  html += '</div></div>';
+  const sel = evs.filter(e => e.day === SEL_DAY);
+  html += '<div class="card"><div class="lrow" style="margin-bottom:4px"><b>' + dayLabel(SEL_DAY) + '</b>' +
+    '<button class="linkbtn" data-act="evnew">+ 특이사항</button></div>';
+  html += sel.length ? sel.map(e => evItem(e, false)).join("") : '<div class="empty">적어둔 특이사항이 없어요</div>';
+  html += '</div>';
+  html += '<div class="lrow" style="margin-top:4px"><b>' + m + '월 특이사항</b><span class="num">' + evs.length + '건</span></div>';
+  html += '<div class="card">' + (evs.length ? evs.map(e => evItem(e, true)).join("")
+    : '<div class="empty">이번 달은 아직 없어요</div>') + '</div>';
+  return html;
+}
+function viewEvSheet() {
+  const s = EVSHEET;
+  const isNew = !s.id;
+  const on = s.alert !== false;
+  return '<div class="sheet-bg" data-act="evclose"></div><div class="sheet">' +
+    '<h3>' + (isNew ? "📅 특이사항 적기" : "특이사항 수정") + '</h3>' +
+    '<div class="hint">관리자만 보여요. 🔔 당일 알림을 켜두면 그날 앱을 열 때 맨 위에 알려드려요.</div>' +
+    '<div class="fld"><label>날짜</label><input type="date" id="e-day" value="' + esc(s.day || SEL_DAY || STATE.today) + '"></div>' +
+    '<div class="fld"><label>내용</label><input type="text" id="e-title" maxlength="100" value="' + esc(s.title || "") + '" placeholder="예: 은성 치과 4시"></div>' +
+    '<div class="fld"><label>메모 (선택)</label><textarea id="e-memo" maxlength="1000" placeholder="자세한 내용">' + esc(s.memo || "") + '</textarea></div>' +
+    '<div class="fld"><label>당일 알림</label><div class="ckrow"><button class="ck' + (on ? " on" : "") + '" id="e-alert">' +
+    (on ? "🔔 그날 알림" : "🔕 알림 안 함") + '</button></div></div>' +
+    '<button class="btn wide" data-act="evsave">' + (isNew ? "저장" : "수정 저장") + '</button>' +
+    (isNew ? '' : '<button class="btn wide red" data-act="evdel">삭제</button>') +
+    '<button class="btn wide ghost" data-act="evclose">닫기</button></div>';
+}
+function viewEvPop() {
+  return '<div class="pop-bg"></div><div class="pop" role="dialog" aria-modal="true">' +
+    '<h3>📌 확인할 일정이 있어요</h3>' +
+    EVPOP.map(a => '<div class="pi"><span class="pd">' + esc(evDayLabel(a.day)) + '</span><b>' + esc(a.title) + '</b>' +
+      (a.memo ? '<small>' + esc(a.memo) + '</small>' : '') + '</div>').join("") +
+    '<button class="btn wide" data-act="evpopok">확인</button>' +
+    '<div class="pnote">확인 후에도 맨 위에 알림 줄로 남아요. 다 처리하면 [닫기]를 눌러주세요.</div></div>';
+}
+function maybeEventPopup() {
+  if (!ME || ME.role !== "parent" || !STATE || EVPOP) return;
+  if (SHEET || SHOPSHEET || PINSHEET || EVSHEET) return;
+  const fresh = (STATE.alerts || []).filter(a => !a.popupSeen && !EVPOP_DONE.has(a.id));
+  if (!fresh.length) return;
+  fresh.forEach(a => EVPOP_DONE.add(a.id));
+  EVPOP = fresh;
+  APP.insertAdjacentHTML("beforeend", viewEvPop());
+}
+async function doEvPopOk() {
+  const ids = (EVPOP || []).map(a => a.id);
+  EVPOP = null;
+  (STATE.alerts || []).forEach(a => { if (ids.includes(a.id)) a.popupSeen = true; });
+  render();
+  if (!ids.length) return;
+  try { await api("event_ack", { ids, kind: "popup" }); } catch (e) { toast(e.message); }
+}
+async function doEvClose(id) {
+  try {
+    await api("event_ack", { ids: [id], kind: "close" });
+    STATE.alerts = (STATE.alerts || []).filter(a => a.id !== id);
+    render(); toast("알림을 닫았어요");
+  } catch (e) { toast(e.message); }
+}
+function goEventDay(day) {
+  TAB = "events"; SEL_DAY = day;
+  if (monthOf(day) !== CAL_MONTH) { CAL_MONTH = monthOf(day); loadState(); }
+  else render();
+}
+async function saveEvent() {
+  const title = $("#e-title").value.trim();
+  const day = $("#e-day").value;
+  if (!day) return toast("날짜를 골라주세요");
+  if (!title) return toast("내용을 적어주세요");
+  try {
+    await api("event_save", { id: EVSHEET.id || null, day, title,
+      memo: $("#e-memo").value.trim(), alert: $("#e-alert").classList.contains("on") });
+    EVSHEET = null; SEL_DAY = day; CAL_MONTH = monthOf(day);
+    toast("저장했어요 📅");
+    await loadState();
+  } catch (e) { toast(e.message); }
+}
+async function deleteEvent() {
+  if (!EVSHEET || !EVSHEET.id || !confirm("이 특이사항을 지울까요?")) return;
+  try { await api("event_delete", { id: EVSHEET.id }); EVSHEET = null; toast("지웠어요"); await loadState(); }
+  catch (e) { toast(e.message); }
 }
 
 function pushBanner() {
@@ -1348,7 +1514,8 @@ async function pollChanges() {
   try {
     const j = await api("poll");
     if (j.version && j.version !== APPVER) $("#updbar").style.display = "flex";
-    if (LAST_REV === null || j.rev !== LAST_REV) await loadState(true);
+    if (LAST_REV === null || j.rev !== LAST_REV || (STATE && j.today && j.today !== STATE.today))
+      await loadState(true);
   } catch (e) { /* 오프라인·한도 등 — 조용히 무시 */ }
 }
 async function checkVersion() {
@@ -1475,6 +1642,18 @@ document.addEventListener("click", e => {
     case "couponuse": doCouponUse(d.id, d.n, d.t); break;
     case "coupondel": doCouponDel(d.id); break;
     case "spendundo": doSpendUndo(d.id); break;
+    case "evnew": EVSHEET = { day: SEL_DAY || STATE.today, alert: true }; render(); break;
+    case "evedit": {
+      const ev = (STATE.events || []).find(x => x.id === d.id);
+      if (ev) { EVSHEET = JSON.parse(JSON.stringify(ev)); render(); }
+      break;
+    }
+    case "evclose": EVSHEET = null; render(); maybeEventPopup(); break;
+    case "evsave": saveEvent(); break;
+    case "evdel": deleteEvent(); break;
+    case "evpopok": doEvPopOk(); break;
+    case "evx": doEvClose(d.id); break;
+    case "evgo": goEventDay(d.d); break;
     case "tpause": doTimerPause(d.id, d.n); break;
     case "tresume": doTimerResume(d.id, d.n); break;
     case "shopnew": SHOPSHEET = {}; render(); break;
@@ -1509,6 +1688,10 @@ document.addEventListener("click", e => {
     e.target.textContent = e.target.classList.contains("on") ? "판매 중" : "숨김";
   }
   if (e.target.id === "f-box" || e.target.id === "cpn-box") e.target.classList.toggle("on");
+  if (e.target.id === "e-alert") {
+    e.target.classList.toggle("on");
+    e.target.textContent = e.target.classList.contains("on") ? "🔔 그날 알림" : "🔕 알림 안 함";
+  }
 });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
